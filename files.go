@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -32,18 +34,18 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			serveFile(w, r)
 			return
 		}
-		filesInfo, err := listFiles(filePaths, showHidden)
+		filesInfo, err := listFiles(filePaths, showHidden, hash, maxHashSize)
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
 		}
-		renderFileList(w, filesInfo)
+		renderFileList(w, filesInfo, hash)
 	})
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
@@ -84,8 +86,26 @@ func isHidden(name string) bool {
 	return len(base) > 0 && base[0] == '.'
 }
 
+// calculateSHA1 calculates the SHA1 hash of a file.
+func calculateSHA1(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	hash := sha1.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
 // listFiles generates a slice of FileInfo for the given paths, including expanding glob patterns.
-func listFiles(paths []string, showHidden bool) ([]FileInfo, error) {
+func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([]FileInfo, error) {
 	var filesInfo []FileInfo
 	for _, pattern := range paths {
 		expandedPaths, err := filepath.Glob(pattern)
@@ -112,10 +132,25 @@ func listFiles(paths []string, showHidden bool) ([]FileInfo, error) {
 					if err != nil {
 						return nil, err // Handle the error if unable to get FileInfo
 					}
+					fullPath := filepath.Join(path, f.Name())
+					fileSize := fileInfo.Size()
+
+					// Calculate hash if enabled and file size is within limit
+					var hashValue string
+					if hash && !fileInfo.IsDir() {
+						if maxHashSize == 0 || fileSize <= maxHashSize {
+							hash, err := calculateSHA1(fullPath)
+							if err == nil {
+								hashValue = hash
+							}
+						}
+					}
+
 					filesInfo = append(filesInfo, FileInfo{
-						Name:    filepath.Join(path, f.Name()),
-						Size:    fileInfo.Size(),    // Get the size from FileInfo
-						ModTime: fileInfo.ModTime(), // Get the modification time from FileInfo
+						Name:    fullPath,
+						Size:    fileSize,
+						ModTime: fileInfo.ModTime(),
+						Hash:    hashValue,
 					})
 				}
 
@@ -124,7 +159,25 @@ func listFiles(paths []string, showHidden bool) ([]FileInfo, error) {
 				if !showHidden && isHidden(path) {
 					continue
 				}
-				filesInfo = append(filesInfo, FileInfo{Name: path, Size: fileInfo.Size(), ModTime: fileInfo.ModTime()})
+				fileSize := fileInfo.Size()
+
+				// Calculate hash if enabled and file size is within limit
+				var hashValue string
+				if hash {
+					if maxHashSize == 0 || fileSize <= maxHashSize {
+						hash, err := calculateSHA1(path)
+						if err == nil {
+							hashValue = hash
+						}
+					}
+				}
+
+				filesInfo = append(filesInfo, FileInfo{
+					Name:    path,
+					Size:    fileSize,
+					ModTime: fileInfo.ModTime(),
+					Hash:    hashValue,
+				})
 			}
 		}
 	}
@@ -145,8 +198,14 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
+// templateData holds data for the file listing template
+type templateData struct {
+	Files    []FileInfo
+	ShowHash bool
+}
+
 // renderFileList renders the HTML page listing all files.
-func renderFileList(w http.ResponseWriter, files []FileInfo) {
+func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -187,6 +246,10 @@ func renderFileList(w http.ResponseWriter, files []FileInfo) {
         td:nth-child(2) {
             text-align: right;
         }
+        .hash {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
         tr:hover {
             background-color: #f5f5f5;
         }
@@ -206,14 +269,16 @@ func renderFileList(w http.ResponseWriter, files []FileInfo) {
             <tr>
                 <th>Name</th>
                 <th>Size</th>
+                {{if .ShowHash}}<th>SHA1</th>{{end}}
                 <th>Modified</th>
             </tr>
         </thead>
         <tbody>
-        {{range .}}
+        {{range .Files}}
             <tr>
                 <td><a href="/{{.Name}}">{{.Name}}</a></td>
                 <td>{{formatSize .Size}}</td>
+                {{if $.ShowHash}}<td class="hash">{{if .Hash}}{{.Hash}}{{else}}-{{end}}</td>{{end}}
                 <td>{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
             </tr>
         {{end}}
@@ -222,7 +287,11 @@ func renderFileList(w http.ResponseWriter, files []FileInfo) {
 </body>
 </html>
     `))
-	if err := tmpl.Execute(cw, files); err != nil {
+	data := templateData{
+		Files:    files,
+		ShowHash: showHash,
+	}
+	if err := tmpl.Execute(cw, data); err != nil {
 		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
 		return
 	}
