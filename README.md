@@ -177,6 +177,17 @@ The server fully supports HTTP Range requests (RFC 7233), which enables:
 
 The server automatically handles `Range` headers and responds with `206 Partial Content` when appropriate. This is transparent to users - any HTTP client that supports Range requests will automatically benefit from this feature.
 
+## Proxy Support
+
+When running behind a reverse proxy (such as frps, nginx, or Cloudflare), the server automatically detects and uses the real client IP address from proxy headers. The server checks the following headers in order:
+
+1. `X-Forwarded-For` - Most common header, contains the original client IP
+2. `X-Real-IP` - Common in nginx and other proxies
+3. `X-Forwarded` - Alternative format for forwarded IPs
+4. `CF-Connecting-IP` - Cloudflare-specific header
+
+If no proxy headers are present, the server falls back to the connection's `RemoteAddr`. The real client IP is displayed in the download logs, making it easy to track which clients are downloading files even when behind a proxy.
+
 ## Statistics
 
 The server tracks download statistics for each file:

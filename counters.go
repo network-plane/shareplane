@@ -22,7 +22,7 @@ func (w *countingWriter) finish() {
 	stats.Count++
 	downloadStats[w.path] = stats
 
-	fmt.Printf("Served file %s, sent %d bytes\n", w.path, w.bytesWritten)
+	fmt.Printf("Served file %s to %s, sent %d bytes\n", w.path, w.clientIP, w.bytesWritten)
 }
 
 // Write method for rateLimitedWriter that throttles writes based on bandwidth limit
