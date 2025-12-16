@@ -6,6 +6,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 
 - **Simple & Fast**: Minimal overhead, easy to use
 - **File & Directory Serving**: Serve individual files or entire directories
+- **HTTP Range Support**: Supports HTTP Range requests (206 Partial Content) for resuming downloads and partial file fetches
 - **Download Statistics**: Track downloads with byte counts and request statistics
 - **Customizable Binding**: Configure IP address and port
 - **Network Interface Detection**: When binding to `0.0.0.0`, automatically shows all available IP addresses
@@ -125,6 +126,15 @@ Available on:
   http://127.0.0.1:8080
   http://localhost:8080
 ```
+
+## HTTP Range Requests
+
+The server fully supports HTTP Range requests (RFC 7233), which enables:
+- **Resuming Downloads**: Clients can resume interrupted downloads by requesting specific byte ranges
+- **Partial Fetches**: Clients can request specific portions of files (e.g., for video streaming or large file processing)
+- **Efficient Transfers**: Reduces bandwidth usage when only part of a file is needed
+
+The server automatically handles `Range` headers and responds with `206 Partial Content` when appropriate. This is transparent to users - any HTTP client that supports Range requests will automatically benefit from this feature.
 
 ## Statistics
 
