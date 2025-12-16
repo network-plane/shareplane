@@ -4,67 +4,51 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
-	cli "github.com/jawher/mow.cli"
+	"github.com/spf13/cobra"
+)
+
+var (
+	port        string
+	ip          string
+	showHidden  bool
+	hash        bool
+	maxHashSize int64
 )
 
 func main() {
 	// Setup signal handling to print stats on exit
 	setupSignalHandling()
 
-	app := cli.App("simple http server", "Serve files over HTTP")
-
-	port := app.String(cli.StringOpt{
-		Name:   "p port",
-		Value:  "8080",
-		Desc:   "Port to listen on",
-		EnvVar: "PORT",
-	})
-
-	ip := app.String(cli.StringOpt{
-		Name:   "i ip",
-		Value:  "0.0.0.0",
-		Desc:   "IP address to bind to (default is all interfaces)",
-		EnvVar: "IP",
-	})
-
-	showHidden := app.Bool(cli.BoolOpt{
-		Name:   "show-hidden",
-		Value:  false,
-		Desc:   "Show files and directories starting with a dot (.) (hidden files are hidden by default)",
-	})
-
-	hash := app.Bool(cli.BoolOpt{
-		Name:   "hash",
-		Value:  false,
-		Desc:   "Calculate and display SHA1 hash for files in the listing",
-	})
-
-	maxHashSizeStr := app.String(cli.StringOpt{
-		Name:   "max-hash-size",
-		Value:  "0",
-		Desc:   "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)",
-	})
-
-	files := app.Strings(cli.StringsArg{
-		Name: "FILES",
-		Desc: "Files or folders to serve",
-	})
-
-	app.Action = func() {
-		if len(*files) == 0 {
-			log.Fatal("Error: You must specify at least one file or folder to serve.")
-		}
-		maxHashSize, err := strconv.ParseInt(*maxHashSizeStr, 10, 64)
-		if err != nil {
-			log.Fatalf("Error: Invalid value for --max-hash-size: %v", err)
-		}
-		serveFiles(*files, *ip, *port, *showHidden, *hash, maxHashSize)
+	rootCmd := &cobra.Command{
+		Use:   "shs [FILES...]",
+		Short: "Simple HTTP Server - Serve files over HTTP",
+		Long:  "A lightweight HTTP server for serving files and directories over HTTP. Perfect for quick file sharing, local development, or serving static content.",
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			// Use environment variables if flags are not explicitly set
+			if !cmd.Flags().Changed("port") {
+				if envPort := os.Getenv("PORT"); envPort != "" {
+					port = envPort
+				}
+			}
+			if !cmd.Flags().Changed("ip") {
+				if envIP := os.Getenv("IP"); envIP != "" {
+					ip = envIP
+				}
+			}
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize)
+		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	rootCmd.Flags().StringVar(&port, "port", "8080", "Port to listen on")
+	rootCmd.Flags().StringVar(&ip, "ip", "0.0.0.0", "IP address to bind to (default is all interfaces)")
+	rootCmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Show files and directories starting with a dot (.) (hidden files are hidden by default)")
+	rootCmd.Flags().BoolVar(&hash, "hash", false, "Calculate and display SHA1 hash for files in the listing")
+	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
+
+	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
 	}
 }
