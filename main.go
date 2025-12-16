@@ -10,6 +10,7 @@ import (
 )
 
 var (
+	appVersion  = "1.1.73"
 	port        string
 	ip          string
 	showHidden  bool
@@ -47,6 +48,9 @@ func main() {
 			serveFiles(args, ip, port, showHidden, hash, maxHashSize)
 		},
 	}
+
+	rootCmd.Version = appVersion
+	rootCmd.SetVersionTemplate("shs version {{.Version}}\n")
 
 	rootCmd.Flags().StringVar(&port, "port", "8080", "Port to listen on")
 	rootCmd.Flags().StringVar(&ip, "ip", "0.0.0.0", "IP address to bind to (default is all interfaces)")
