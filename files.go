@@ -110,18 +110,20 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 	for _, pattern := range paths {
 		expandedPaths, err := filepath.Glob(pattern)
 		if err != nil {
-			// Handle error if the glob pattern could not be expanded
-			return nil, err
+			return nil, fmt.Errorf("error: invalid glob pattern '%s': %w", pattern, err)
+		}
+		if len(expandedPaths) == 0 {
+			return nil, fmt.Errorf("error: no files or directories found matching pattern '%s'", pattern)
 		}
 		for _, path := range expandedPaths {
 			fileInfo, err := os.Stat(path)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("error: cannot access '%s': %w", path, err)
 			}
 			if fileInfo.IsDir() {
 				dirFiles, err := os.ReadDir(path)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("error: cannot read directory '%s': %w", path, err)
 				}
 				for _, f := range dirFiles {
 					// Skip hidden files unless showHidden flag is set
@@ -130,7 +132,7 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 					}
 					fileInfo, err := f.Info() // Get the FileInfo for the directory entry
 					if err != nil {
-						return nil, err // Handle the error if unable to get FileInfo
+						return nil, fmt.Errorf("error: cannot get file info for '%s': %w", filepath.Join(path, f.Name()), err)
 					}
 					fullPath := filepath.Join(path, f.Name())
 					fileSize := fileInfo.Size()

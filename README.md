@@ -1,6 +1,6 @@
 # shs - Simple HTTP Server
 
-A lightweight HTTP server written in Go for serving files and directories over HTTP. Perfect for quick file sharing, local development, or serving static content.
+A lightweight HTTP server written in Go for serving files and directories over HTTP. Perfect for quick file sharing.
 
 ## Features
 
