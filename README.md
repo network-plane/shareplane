@@ -11,7 +11,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **Network Interface Detection**: When binding to `0.0.0.0`, automatically shows all available IP addresses
 - **File Listing**: Automatic HTML file listing at the root path
 - **Glob Pattern Support**: Use glob patterns to select multiple files
-- **Hidden File Filtering**: Option to exclude hidden files (starting with `.`) from listings
+- **Hidden File Filtering**: Hidden files (starting with `.`) are excluded from listings by default
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -60,9 +60,9 @@ Serve multiple files and directories:
   ```
   When binding to `0.0.0.0`, the server will display all available network interfaces and their IP addresses.
 
-- `--no-hidden`: Hide files and directories starting with a dot (`.`) from file listings
+- `--show-hidden`: Show files and directories starting with a dot (`.`) in file listings (hidden files are hidden by default)
   ```bash
-  ./shs --no-hidden /path/to/directory
+  ./shs --show-hidden /path/to/directory
   ```
 
 - Environment Variables:
@@ -86,9 +86,9 @@ Use glob patterns:
 ./shs *.txt *.pdf
 ```
 
-Hide hidden files from listings:
+Show hidden files in listings (hidden files are hidden by default):
 ```bash
-./shs --no-hidden /path/to/directory
+./shs --show-hidden /path/to/directory
 ```
 
 Access files:
