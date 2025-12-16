@@ -1,0 +1,2 @@
+Make --no-hidden the reverse, by default we dont show hidden files and only if --show-hidden is passed we show them
+In the output of the file listing we need to add sha1 for the files if the flag --hash is passed, when --hash is passed we also have an optional flag --max-hash-size that sets the maximum size of a file to hash, default should be 0 (no limit)

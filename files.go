@@ -32,13 +32,13 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, noHidden bool) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			serveFile(w, r)
 			return
 		}
-		filesInfo, err := listFiles(filePaths, noHidden)
+		filesInfo, err := listFiles(filePaths, showHidden)
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
@@ -85,7 +85,7 @@ func isHidden(name string) bool {
 }
 
 // listFiles generates a slice of FileInfo for the given paths, including expanding glob patterns.
-func listFiles(paths []string, noHidden bool) ([]FileInfo, error) {
+func listFiles(paths []string, showHidden bool) ([]FileInfo, error) {
 	var filesInfo []FileInfo
 	for _, pattern := range paths {
 		expandedPaths, err := filepath.Glob(pattern)
@@ -104,8 +104,8 @@ func listFiles(paths []string, noHidden bool) ([]FileInfo, error) {
 					return nil, err
 				}
 				for _, f := range dirFiles {
-					// Skip hidden files if noHidden flag is set
-					if noHidden && isHidden(f.Name()) {
+					// Skip hidden files unless showHidden flag is set
+					if !showHidden && isHidden(f.Name()) {
 						continue
 					}
 					fileInfo, err := f.Info() // Get the FileInfo for the directory entry
@@ -120,8 +120,8 @@ func listFiles(paths []string, noHidden bool) ([]FileInfo, error) {
 				}
 
 			} else {
-				// Skip hidden files if noHidden flag is set
-				if noHidden && isHidden(path) {
+				// Skip hidden files unless showHidden flag is set
+				if !showHidden && isHidden(path) {
 					continue
 				}
 				filesInfo = append(filesInfo, FileInfo{Name: path, Size: fileInfo.Size(), ModTime: fileInfo.ModTime()})
