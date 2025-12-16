@@ -1,4 +1,4 @@
-module shs
+module shareplane
 
 go 1.22.0
 
