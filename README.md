@@ -1,4 +1,4 @@
-# shs - Simple HTTP Server
+# shareplane - Simple HTTP Server
 
 A lightweight HTTP server written in Go for serving files and directories over HTTP. Perfect for quick file sharing.
 
@@ -24,7 +24,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 ### Build from Source
 
 ```bash
-go build -o shs
+go build -o shareplane
 ```
 
 ## Usage
@@ -33,56 +33,56 @@ go build -o shs
 
 Serve a single file:
 ```bash
-./shs file.txt
+./shareplane file.txt
 ```
 
 Serve multiple files:
 ```bash
-./shs file1.txt file2.txt file3.txt
+./shareplane file1.txt file2.txt file3.txt
 ```
 
 Serve a directory:
 ```bash
-./shs /path/to/directory
+./shareplane /path/to/directory
 ```
 
 Serve multiple files and directories:
 ```bash
-./shs file.txt /path/to/dir1 /path/to/dir2
+./shareplane file.txt /path/to/dir1 /path/to/dir2
 ```
 
 ### Command-Line Options
 
 - `--port`: Port to listen on (default: `8080`)
   ```bash
-  ./shs --port 3000 file.txt
+  ./shareplane --port 3000 file.txt
   ```
 
 - `--ip`: IP address to bind to (default: `0.0.0.0` - all interfaces)
   ```bash
-  ./shs --ip 127.0.0.1 file.txt
+  ./shareplane --ip 127.0.0.1 file.txt
   ```
   When binding to `0.0.0.0`, the server will display all available network interfaces and their IP addresses.
 
 - `--show-hidden`: Show files and directories starting with a dot (`.`) in file listings (hidden files are hidden by default)
   ```bash
-  ./shs --show-hidden /path/to/directory
+  ./shareplane --show-hidden /path/to/directory
   ```
 
 - `--hash`: Calculate and display SHA1 hash for files in the listing
   ```bash
-  ./shs --hash /path/to/directory
+  ./shareplane --hash /path/to/directory
   ```
 
 - `--max-hash-size`: Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)
   ```bash
-  ./shs --hash --max-hash-size 10485760 /path/to/directory  # Only hash files up to 10MB
+  ./shareplane --hash --max-hash-size 10485760 /path/to/directory  # Only hash files up to 10MB
   ```
 
 - `--limit`: Bandwidth limit for file transfers (e.g., `5MB`, `250KB`, `5M`, `1.4G`, or plain bytes). No limit if not specified.
   ```bash
-  ./shs --limit 5MB /path/to/directory  # Limit to 5MB/s
-  ./shs --limit 1.4G /path/to/directory  # Limit to 1.4GB/s
+  ./shareplane --limit 5MB /path/to/directory  # Limit to 5MB/s
+  ./shareplane --limit 1.4G /path/to/directory  # Limit to 1.4GB/s
   ```
 
 - `--colours`: Customize the color scheme of the file listing interface. Requires 7 comma-separated colors in this order:
@@ -94,7 +94,7 @@ Serve multiple files and directories:
   6. Table filename text (link color)
   7. Table other text
   ```bash
-  ./shs --colours "#000000,#FFFFFF,#FF0000,#FFFFFF,#CCCCCC,#0000FF,#333333" /path/to/directory
+  ./shareplane --colours "#000000,#FFFFFF,#FF0000,#FFFFFF,#CCCCCC,#0000FF,#333333" /path/to/directory
   ```
   Colors can be specified as hex codes (with or without `#`) or named CSS colors (e.g., `red`, `blue`, `white`).
 
@@ -106,52 +106,52 @@ Serve multiple files and directories:
 
 Serve files on a custom port:
 ```bash
-./shs --port 9000 document.pdf image.jpg
+./shareplane --port 9000 document.pdf image.jpg
 ```
 
 Serve only on localhost:
 ```bash
-./shs --ip 127.0.0.1 --port 8080 /path/to/files
+./shareplane --ip 127.0.0.1 --port 8080 /path/to/files
 ```
 
 Use glob patterns:
 ```bash
-./shs *.txt *.pdf
+./shareplane *.txt *.pdf
 ```
 
 Show hidden files in listings (hidden files are hidden by default):
 ```bash
-./shs --show-hidden /path/to/directory
+./shareplane --show-hidden /path/to/directory
 ```
 
 Show SHA1 hashes for files:
 ```bash
-./shs --hash /path/to/directory
+./shareplane --hash /path/to/directory
 ```
 
 Show SHA1 hashes with size limit (only hash files up to 100MB):
 ```bash
-./shs --hash --max-hash-size 104857600 /path/to/directory
+./shareplane --hash --max-hash-size 104857600 /path/to/directory
 ```
 
 Limit bandwidth to 5MB/s:
 ```bash
-./shs --limit 5MB /path/to/directory
+./shareplane --limit 5MB /path/to/directory
 ```
 
 Customize colors with a dark theme:
 ```bash
-./shs --colours "#1a1a1a,#e0e0e0,#2d2d2d,#ffffff,#252525,#4a9eff,#cccccc" /path/to/directory
+./shareplane --colours "#1a1a1a,#e0e0e0,#2d2d2d,#ffffff,#252525,#4a9eff,#cccccc" /path/to/directory
 ```
 
 Customize colors with a light blue theme:
 ```bash
-./shs --colours "#f0f8ff,#1a1a1a,#4a90e2,#ffffff,#ffffff,#0066cc,#333333" /path/to/directory
+./shareplane --colours "#f0f8ff,#1a1a1a,#4a90e2,#ffffff,#ffffff,#0066cc,#333333" /path/to/directory
 ```
 
 Customize colors using named colors:
 ```bash
-./shs --colours "black,white,red,white,gray,blue,darkgray" /path/to/directory
+./shareplane --colours "black,white,red,white,gray,blue,darkgray" /path/to/directory
 ```
 
 Access files:

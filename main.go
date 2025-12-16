@@ -28,13 +28,13 @@ func main() {
 	setupSignalHandling()
 
 	rootCmd := &cobra.Command{
-		Use:   "shs [FILES...]",
+		Use:   "shareplane [FILES...]",
 		Short: "Simple HTTP Server - Serve files over HTTP",
 		Long:  "A lightweight HTTP server written in Go for serving files and directories over HTTP. Perfect for quick file sharing.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				cmd.SilenceUsage = true
-				return fmt.Errorf("no files or directories specified\n\nYou must specify at least one file or directory to serve.\n\nExample usage:\n  shs file.txt\n  shs /path/to/directory\n  shs file1.txt file2.txt\n\nUse 'shs --help' for more information")
+				return fmt.Errorf("no files or directories specified\n\nYou must specify at least one file or directory to serve.\n\nExample usage:\n  shareplane file.txt\n  shareplane /path/to/directory\n  shareplane file1.txt file2.txt\n\nUse 'shareplane --help' for more information")
 			}
 			return nil
 		},
@@ -76,7 +76,7 @@ func main() {
 	}
 
 	rootCmd.Version = appVersion
-	rootCmd.SetVersionTemplate("shs version {{.Version}}\n")
+	rootCmd.SetVersionTemplate("shareplane version {{.Version}}\n")
 
 	rootCmd.Flags().StringVar(&port, "port", "8080", "Port to listen on")
 	rootCmd.Flags().StringVar(&ip, "ip", "0.0.0.0", "IP address to bind to (default is all interfaces)")
