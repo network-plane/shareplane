@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	cli "github.com/jawher/mow.cli"
@@ -35,6 +36,18 @@ func main() {
 		Desc:   "Show files and directories starting with a dot (.) (hidden files are hidden by default)",
 	})
 
+	hash := app.Bool(cli.BoolOpt{
+		Name:   "hash",
+		Value:  false,
+		Desc:   "Calculate and display SHA1 hash for files in the listing",
+	})
+
+	maxHashSizeStr := app.String(cli.StringOpt{
+		Name:   "max-hash-size",
+		Value:  "0",
+		Desc:   "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)",
+	})
+
 	files := app.Strings(cli.StringsArg{
 		Name: "FILES",
 		Desc: "Files or folders to serve",
@@ -44,7 +57,11 @@ func main() {
 		if len(*files) == 0 {
 			log.Fatal("Error: You must specify at least one file or folder to serve.")
 		}
-		serveFiles(*files, *ip, *port, *showHidden)
+		maxHashSize, err := strconv.ParseInt(*maxHashSizeStr, 10, 64)
+		if err != nil {
+			log.Fatalf("Error: Invalid value for --max-hash-size: %v", err)
+		}
+		serveFiles(*files, *ip, *port, *showHidden, *hash, maxHashSize)
 	}
 
 	if err := app.Run(os.Args); err != nil {

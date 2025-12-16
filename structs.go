@@ -30,4 +30,5 @@ type FileInfo struct {
 	Name    string
 	Size    int64
 	ModTime time.Time
+	Hash    string // SHA1 hash (empty if not calculated)
 }

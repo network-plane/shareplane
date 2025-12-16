@@ -12,6 +12,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **File Listing**: Automatic HTML file listing at the root path
 - **Glob Pattern Support**: Use glob patterns to select multiple files
 - **Hidden File Filtering**: Hidden files (starting with `.`) are excluded from listings by default
+- **File Hashing**: Optional SHA1 hash calculation and display for files in listings
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -65,6 +66,16 @@ Serve multiple files and directories:
   ./shs --show-hidden /path/to/directory
   ```
 
+- `--hash`: Calculate and display SHA1 hash for files in the listing
+  ```bash
+  ./shs --hash /path/to/directory
+  ```
+
+- `--max-hash-size`: Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)
+  ```bash
+  ./shs --hash --max-hash-size 10485760 /path/to/directory  # Only hash files up to 10MB
+  ```
+
 - Environment Variables:
   - `PORT`: Set the port (same as `-p`)
   - `IP`: Set the IP address (same as `-i`)
@@ -89,6 +100,16 @@ Use glob patterns:
 Show hidden files in listings (hidden files are hidden by default):
 ```bash
 ./shs --show-hidden /path/to/directory
+```
+
+Show SHA1 hashes for files:
+```bash
+./shs --hash /path/to/directory
+```
+
+Show SHA1 hashes with size limit (only hash files up to 100MB):
+```bash
+./shs --hash --max-hash-size 104857600 /path/to/directory
 ```
 
 Access files:
