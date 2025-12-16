@@ -24,11 +24,17 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 	}
 	fileSize := fileInfo.Size()
 
+	// Check if this is a Range request (for resuming downloads or partial fetches)
+	isRangeRequest := r.Header.Get("Range") != ""
+
+	// http.ServeFile automatically handles HTTP Range requests (206 Partial Content)
+	// This enables resuming downloads and partial file fetches
 	http.ServeFile(cw, r, path)
 	cw.finish()
 
-	// Check if the download was complete
-	if cw.bytesWritten < fileSize {
+	// Check if the download was complete (only warn for non-Range requests)
+	// Range requests intentionally send fewer bytes, so don't warn for those
+	if !isRangeRequest && cw.bytesWritten < fileSize {
 		fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", path, cw.bytesWritten, fileSize)
 	}
 }
