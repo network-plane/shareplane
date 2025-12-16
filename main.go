@@ -13,13 +13,14 @@ import (
 )
 
 var (
-	appVersion  = "1.1.73"
-	port        string
-	ip          string
-	showHidden  bool
-	hash        bool
-	maxHashSize int64
+	appVersion     = "1.1.73"
+	port           string
+	ip             string
+	showHidden     bool
+	hash           bool
+	maxHashSize    int64
 	bandwidthLimit string
+	colours        string
 )
 
 func main() {
@@ -59,7 +60,18 @@ func main() {
 				}
 				limitBytesPerSec = parsed
 			}
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec)
+			// Parse colors
+			var colorScheme *colorScheme
+			if colours != "" {
+				parsed, err := parseColors(colours)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid colors '%s': %v\n", colours, err)
+					fmt.Fprintf(os.Stderr, "Expected 7 colors: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText\n")
+					os.Exit(1)
+				}
+				colorScheme = parsed
+			}
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme)
 		},
 	}
 
@@ -72,6 +84,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&hash, "hash", false, "Calculate and display SHA1 hash for files in the listing")
 	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
 	rootCmd.Flags().StringVar(&bandwidthLimit, "limit", "", "Bandwidth limit (e.g., 5MB, 250KB, 5M, 1.4G, or plain bytes). No limit if not specified.")
+	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -134,6 +147,67 @@ func parseBandwidthLimit(limit string) (int64, error) {
 	}
 
 	return int64(value * multiplier), nil
+}
+
+// colorScheme holds the color configuration for the HTML output
+type colorScheme struct {
+	Background         string
+	Text               string
+	TableHeaderBg      string
+	TableHeaderText    string
+	TableBg            string
+	TableFilenameText  string
+	TableOtherText     string
+}
+
+// parseColors parses a comma-separated string of 7 colors
+func parseColors(colorStr string) (*colorScheme, error) {
+	colors := strings.Split(colorStr, ",")
+	if len(colors) != 7 {
+		return nil, fmt.Errorf("expected 7 colors, got %d", len(colors))
+	}
+
+	// Validate colors (basic hex color validation)
+	colorRegex := regexp.MustCompile(`^#?[0-9A-Fa-f]{6}$|^[a-zA-Z]+$`)
+	hexOnlyRegex := regexp.MustCompile(`^[0-9A-Fa-f]{6}$`)
+	for i, color := range colors {
+		color = strings.TrimSpace(color)
+		if color == "" {
+			return nil, fmt.Errorf("color %d is empty", i+1)
+		}
+		// Allow hex colors (#RRGGBB or RRGGBB) or named colors
+		if !colorRegex.MatchString(color) && !isValidColorName(color) {
+			return nil, fmt.Errorf("invalid color format at position %d: '%s' (expected hex like #FF0000 or named color)", i+1, color)
+		}
+		// Normalize hex colors to include #
+		if hexOnlyRegex.MatchString(color) {
+			colors[i] = "#" + color
+		} else {
+			colors[i] = color
+		}
+	}
+
+	return &colorScheme{
+		Background:        strings.TrimSpace(colors[0]),
+		Text:              strings.TrimSpace(colors[1]),
+		TableHeaderBg:     strings.TrimSpace(colors[2]),
+		TableHeaderText:   strings.TrimSpace(colors[3]),
+		TableBg:           strings.TrimSpace(colors[4]),
+		TableFilenameText: strings.TrimSpace(colors[5]),
+		TableOtherText:    strings.TrimSpace(colors[6]),
+	}, nil
+}
+
+// isValidColorName checks if a string is a valid CSS color name
+func isValidColorName(name string) bool {
+	validColors := map[string]bool{
+		"black": true, "white": true, "red": true, "green": true, "blue": true,
+		"yellow": true, "cyan": true, "magenta": true, "gray": true, "grey": true,
+		"orange": true, "purple": true, "pink": true, "brown": true, "navy": true,
+		"teal": true, "lime": true, "maroon": true, "olive": true, "silver": true,
+		"aqua": true, "fuchsia": true, "transparent": true,
+	}
+	return validColors[strings.ToLower(name)]
 }
 
 func setupSignalHandling() {
