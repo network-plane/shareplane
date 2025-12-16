@@ -47,7 +47,9 @@ func main() {
 		serveFiles(*files, *ip, *port, *noHidden)
 	}
 
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func setupSignalHandling() {
