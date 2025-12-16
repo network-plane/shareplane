@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,8 +24,14 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "shs [FILES...]",
 		Short: "Simple HTTP Server - Serve files over HTTP",
-		Long:  "A lightweight HTTP server for serving files and directories over HTTP. Perfect for quick file sharing, local development, or serving static content.",
-		Args:  cobra.MinimumNArgs(1),
+		Long:  "A lightweight HTTP server written in Go for serving files and directories over HTTP. Perfect for quick file sharing.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("no files or directories specified\n\nYou must specify at least one file or directory to serve.\n\nExample usage:\n  shs file.txt\n  shs /path/to/directory\n  shs file1.txt file2.txt\n\nUse 'shs --help' for more information")
+			}
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			// Use environment variables if flags are not explicitly set
 			if !cmd.Flags().Changed("port") {
@@ -49,7 +55,7 @@ func main() {
 	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
 
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+		os.Exit(1)
 	}
 }
 
