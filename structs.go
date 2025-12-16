@@ -25,6 +25,15 @@ type countingWriter struct {
 	path         string // The path of the file being served
 }
 
+// rateLimitedWriter wraps a ResponseWriter and limits the write speed
+type rateLimitedWriter struct {
+	http.ResponseWriter
+	bytesPerSecond int64
+	lastWrite      time.Time
+	bytesWritten   int64
+	mu             sync.Mutex
+}
+
 // FileInfo is a struct to hold detailed information about files.
 type FileInfo struct {
 	Name    string

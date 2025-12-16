@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -16,6 +19,7 @@ var (
 	showHidden  bool
 	hash        bool
 	maxHashSize int64
+	bandwidthLimit string
 )
 
 func main() {
@@ -45,7 +49,17 @@ func main() {
 					ip = envIP
 				}
 			}
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize)
+			// Parse bandwidth limit
+			var limitBytesPerSec int64
+			if bandwidthLimit != "" {
+				parsed, err := parseBandwidthLimit(bandwidthLimit)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid bandwidth limit '%s': %v\n", bandwidthLimit, err)
+					os.Exit(1)
+				}
+				limitBytesPerSec = parsed
+			}
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec)
 		},
 	}
 
@@ -57,10 +71,69 @@ func main() {
 	rootCmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Show files and directories starting with a dot (.) (hidden files are hidden by default)")
 	rootCmd.Flags().BoolVar(&hash, "hash", false, "Calculate and display SHA1 hash for files in the listing")
 	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
+	rootCmd.Flags().StringVar(&bandwidthLimit, "limit", "", "Bandwidth limit (e.g., 5MB, 250KB, 5M, 1.4G, or plain bytes). No limit if not specified.")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// parseBandwidthLimit parses a bandwidth limit string and returns bytes per second.
+// Supports formats like: "5MB", "250KB", "5M", "250K", "1.4G", or plain bytes "1048576"
+func parseBandwidthLimit(limit string) (int64, error) {
+	limit = strings.TrimSpace(limit)
+	if limit == "" {
+		return 0, fmt.Errorf("empty limit")
+	}
+
+	// Try to parse as plain number (bytes)
+	if val, err := strconv.ParseInt(limit, 10, 64); err == nil {
+		return val, nil
+	}
+
+	// Parse with unit (e.g., "5MB", "1.4G", "250KB")
+	// Match pattern: optional decimal number, optional unit (case insensitive)
+	re := regexp.MustCompile(`(?i)^([\d.]+)\s*([KMGT]?B?)$`)
+	matches := re.FindStringSubmatch(limit)
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid format, expected number with optional unit (e.g., 5MB, 1.4G, 250KB)")
+	}
+
+	valueStr := matches[1]
+	unit := strings.ToUpper(matches[2])
+
+	// Parse the numeric value (supports decimals like 1.4)
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number: %w", err)
+	}
+
+	// Normalize unit (handle both "M" and "MB", "K" and "KB", etc.)
+	if unit == "" {
+		return int64(value), nil
+	}
+
+	// Remove trailing 'B' if present (5MB = 5M, 250KB = 250K)
+	if len(unit) > 1 && unit[len(unit)-1] == 'B' {
+		unit = unit[:len(unit)-1]
+	}
+
+	// Convert to bytes per second
+	var multiplier float64
+	switch unit {
+	case "K":
+		multiplier = 1024
+	case "M":
+		multiplier = 1024 * 1024
+	case "G":
+		multiplier = 1024 * 1024 * 1024
+	case "T":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown unit '%s', supported units: K, M, G, T (or KB, MB, GB, TB)", unit)
+	}
+
+	return int64(value * multiplier), nil
 }
 
 func setupSignalHandling() {
