@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,13 +32,13 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string) {
+func serveFiles(filePaths []string, ip string, port string, noHidden bool) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			serveFile(w, r)
 			return
 		}
-		filesInfo, err := listFiles(filePaths)
+		filesInfo, err := listFiles(filePaths, noHidden)
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
@@ -46,13 +47,45 @@ func serveFiles(filePaths []string, ip string, port string) {
 	})
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
-	fmt.Printf("Serving on http://%s\n", listenAddress)
+	
+	// If listening on 0.0.0.0, show all available IP addresses
+	if ip == "0.0.0.0" {
+		fmt.Printf("Serving on http://%s\n", listenAddress)
+		fmt.Println("Available on:")
+		interfaces, err := net.Interfaces()
+		if err == nil {
+			for _, iface := range interfaces {
+				addrs, err := iface.Addrs()
+				if err != nil {
+					continue
+				}
+				for _, addr := range addrs {
+					if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+						if ipNet.IP.To4() != nil {
+							fmt.Printf("  http://%s:%s\n", ipNet.IP.String(), port)
+						}
+					}
+				}
+			}
+		}
+		// Also show localhost
+		fmt.Printf("  http://127.0.0.1:%s\n", port)
+		fmt.Printf("  http://localhost:%s\n", port)
+	} else {
+		fmt.Printf("Serving on http://%s\n", listenAddress)
+	}
 
 	log.Fatal(http.ListenAndServe(listenAddress, nil))
 }
 
+// isHidden checks if a file or directory name starts with a dot (hidden file).
+func isHidden(name string) bool {
+	base := filepath.Base(name)
+	return len(base) > 0 && base[0] == '.'
+}
+
 // listFiles generates a slice of FileInfo for the given paths, including expanding glob patterns.
-func listFiles(paths []string) ([]FileInfo, error) {
+func listFiles(paths []string, noHidden bool) ([]FileInfo, error) {
 	var filesInfo []FileInfo
 	for _, pattern := range paths {
 		expandedPaths, err := filepath.Glob(pattern)
@@ -71,6 +104,10 @@ func listFiles(paths []string) ([]FileInfo, error) {
 					return nil, err
 				}
 				for _, f := range dirFiles {
+					// Skip hidden files if noHidden flag is set
+					if noHidden && isHidden(f.Name()) {
+						continue
+					}
 					fileInfo, err := f.Info() // Get the FileInfo for the directory entry
 					if err != nil {
 						return nil, err // Handle the error if unable to get FileInfo
@@ -83,6 +120,10 @@ func listFiles(paths []string) ([]FileInfo, error) {
 				}
 
 			} else {
+				// Skip hidden files if noHidden flag is set
+				if noHidden && isHidden(path) {
+					continue
+				}
 				filesInfo = append(filesInfo, FileInfo{Name: path, Size: fileInfo.Size(), ModTime: fileInfo.ModTime()})
 			}
 		}
@@ -101,7 +142,10 @@ func renderFileList(w http.ResponseWriter, files []FileInfo) {
         {{end}}
         </ul>
     `))
-	tmpl.Execute(cw, files)
+	if err := tmpl.Execute(cw, files); err != nil {
+		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
+		return
+	}
 
 	// Update bytes sent for listings
 	totalBytesSentForListings += cw.bytesWritten

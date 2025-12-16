@@ -29,6 +29,12 @@ func main() {
 		EnvVar: "IP",
 	})
 
+	noHidden := app.Bool(cli.BoolOpt{
+		Name:   "no-hidden",
+		Value:  false,
+		Desc:   "Hide files and directories starting with a dot (.)",
+	})
+
 	files := app.Strings(cli.StringsArg{
 		Name: "FILES",
 		Desc: "Files or folders to serve",
@@ -38,7 +44,7 @@ func main() {
 		if len(*files) == 0 {
 			log.Fatal("Error: You must specify at least one file or folder to serve.")
 		}
-		serveFiles(*files, *ip, *port)
+		serveFiles(*files, *ip, *port, *noHidden)
 	}
 
 	app.Run(os.Args)
