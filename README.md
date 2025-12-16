@@ -50,14 +50,14 @@ Serve multiple files and directories:
 
 ### Command-Line Options
 
-- `-p, --port`: Port to listen on (default: `8080`)
+- `--port`: Port to listen on (default: `8080`)
   ```bash
-  ./shs -p 3000 file.txt
+  ./shs --port 3000 file.txt
   ```
 
-- `-i, --ip`: IP address to bind to (default: `0.0.0.0` - all interfaces)
+- `--ip`: IP address to bind to (default: `0.0.0.0` - all interfaces)
   ```bash
-  ./shs -i 127.0.0.1 file.txt
+  ./shs --ip 127.0.0.1 file.txt
   ```
   When binding to `0.0.0.0`, the server will display all available network interfaces and their IP addresses.
 
@@ -77,19 +77,19 @@ Serve multiple files and directories:
   ```
 
 - Environment Variables:
-  - `PORT`: Set the port (same as `-p`)
-  - `IP`: Set the IP address (same as `-i`)
+  - `PORT`: Set the port (same as `--port`)
+  - `IP`: Set the IP address (same as `--ip`)
 
 ### Examples
 
 Serve files on a custom port:
 ```bash
-./shs -p 9000 document.pdf image.jpg
+./shs --port 9000 document.pdf image.jpg
 ```
 
 Serve only on localhost:
 ```bash
-./shs -i 127.0.0.1 -p 8080 /path/to/files
+./shs --ip 127.0.0.1 --port 8080 /path/to/files
 ```
 
 Use glob patterns:
@@ -117,7 +117,7 @@ Access files:
 - Access files directly: `http://localhost:8080/filename.txt`
 
 When binding to `0.0.0.0`, the server will show output like:
-```
+```bash
 Serving on http://0.0.0.0:8080
 Available on:
   http://192.168.1.100:8080
