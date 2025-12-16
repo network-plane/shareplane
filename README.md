@@ -14,6 +14,8 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **Glob Pattern Support**: Use glob patterns to select multiple files
 - **Hidden File Filtering**: Hidden files (starting with `.`) are excluded from listings by default
 - **File Hashing**: Optional SHA1 hash calculation and display for files in listings
+- **Customizable Colors**: Customize the color scheme of the file listing interface
+- **Bandwidth Limiting**: Optional bandwidth throttling for file transfers
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -77,6 +79,25 @@ Serve multiple files and directories:
   ./shs --hash --max-hash-size 10485760 /path/to/directory  # Only hash files up to 10MB
   ```
 
+- `--limit`: Bandwidth limit for file transfers (e.g., `5MB`, `250KB`, `5M`, `1.4G`, or plain bytes). No limit if not specified.
+  ```bash
+  ./shs --limit 5MB /path/to/directory  # Limit to 5MB/s
+  ./shs --limit 1.4G /path/to/directory  # Limit to 1.4GB/s
+  ```
+
+- `--colours`: Customize the color scheme of the file listing interface. Requires 7 comma-separated colors in this order:
+  1. Background (body background)
+  2. Text (heading text)
+  3. Table header Background
+  4. Table header text
+  5. Table Background
+  6. Table filename text (link color)
+  7. Table other text
+  ```bash
+  ./shs --colours "#000000,#FFFFFF,#FF0000,#FFFFFF,#CCCCCC,#0000FF,#333333" /path/to/directory
+  ```
+  Colors can be specified as hex codes (with or without `#`) or named CSS colors (e.g., `red`, `blue`, `white`).
+
 - Environment Variables:
   - `PORT`: Set the port (same as `--port`)
   - `IP`: Set the IP address (same as `--ip`)
@@ -111,6 +132,26 @@ Show SHA1 hashes for files:
 Show SHA1 hashes with size limit (only hash files up to 100MB):
 ```bash
 ./shs --hash --max-hash-size 104857600 /path/to/directory
+```
+
+Limit bandwidth to 5MB/s:
+```bash
+./shs --limit 5MB /path/to/directory
+```
+
+Customize colors with a dark theme:
+```bash
+./shs --colours "#1a1a1a,#e0e0e0,#2d2d2d,#ffffff,#252525,#4a9eff,#cccccc" /path/to/directory
+```
+
+Customize colors with a light blue theme:
+```bash
+./shs --colours "#f0f8ff,#1a1a1a,#4a90e2,#ffffff,#ffffff,#0066cc,#333333" /path/to/directory
+```
+
+Customize colors using named colors:
+```bash
+./shs --colours "black,white,red,white,gray,blue,darkgray" /path/to/directory
 ```
 
 Access files:

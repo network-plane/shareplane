@@ -52,7 +52,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			serveFile(w, r, bandwidthLimit)
@@ -63,7 +63,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
 		}
-		renderFileList(w, filesInfo, hash)
+		renderFileList(w, filesInfo, hash, colorScheme)
 	})
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
@@ -220,12 +220,13 @@ func formatSize(size int64) string {
 
 // templateData holds data for the file listing template
 type templateData struct {
-	Files    []FileInfo
-	ShowHash bool
+	Files       []FileInfo
+	ShowHash    bool
+	ColorScheme *colorScheme
 }
 
 // renderFileList renders the HTML page listing all files.
-func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
+func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colorScheme *colorScheme) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -238,20 +239,20 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
         body {
             font-family: monospace;
             margin: 20px;
-            background-color: #f5f5f5;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.Background}};{{else}}background-color: #f5f5f5;{{end}}
         }
         h1 {
-            color: #333;
+            {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: #333;{{end}}
         }
         table {
             border-collapse: collapse;
             width: 100%;
-            background-color: white;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableBg}};{{else}}background-color: white;{{end}}
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         th {
-            background-color: #4CAF50;
-            color: white;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #4CAF50;{{end}}
+            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: white;{{end}}
             padding: 12px;
             text-align: left;
             font-weight: bold;
@@ -262,6 +263,7 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
         td {
             padding: 10px 12px;
             border-bottom: 1px solid #ddd;
+            {{if .ColorScheme}}color: {{.ColorScheme.TableOtherText}};{{end}}
         }
         td:nth-child(2) {
             text-align: right;
@@ -274,7 +276,7 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
             background-color: #f5f5f5;
         }
         a {
-            color: #2196F3;
+            {{if .ColorScheme}}color: {{.ColorScheme.TableFilenameText}};{{else}}color: #2196F3;{{end}}
             text-decoration: none;
         }
         a:hover {
@@ -308,8 +310,9 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool) {
 </html>
     `))
 	data := templateData{
-		Files:    files,
-		ShowHash: showHash,
+		Files:       files,
+		ShowHash:    showHash,
+		ColorScheme: colorScheme,
 	}
 	if err := tmpl.Execute(cw, data); err != nil {
 		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
