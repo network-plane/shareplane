@@ -1,40 +1,40 @@
 # TODO
 
-- [ ] `--limit` flag needs to be `--bw-limit`
-- [ ] add a --URL flag that will be used instead of the local ip/domain when we serve files, this will be used for files behind a proxy, it can accept an IP, IP:PORT, domain, domain:port
-- [ ] add an --idle flag, by default the server will close if the flag is used in 15m, otherwise this accepts time in minutes otherwise units like 10M, 4H, 4D, 1W, 1M
-- [ ] add flag --reload, which checks all the passed dirs/files for changes if new files are added/removed or files changed we update the output
-- [ ] sort on header label click
-- [ ] total size on all files in the bottom of the table including file count
-- [ ] /api/ endpoint where we only return proper json for use in scripts/tools, example /api/files will print out the output but in a json
-- [ ] in the bottomw before the footer show links to all the supported endpoints
-- [ ] show each user which files they downloaded in full/partial
-- [ ] ability to review some file types
-- [ ] add a command to show live stats (shs status) for when we run this as a service
-- [ ] make this runable as a service
-- [ ] allow clients to probe using head without downloading anything else
-- [ ] add download counters to the output so that after the date we show how many times a file has been downloaded
-- [ ] add verification endpoint, where the user can pass a filename and get the sha1 hash, example /verify?file=filename.ext
-- [ ] add flag --preffix and --suffix that adds a prefix and suffix to the filenames
-- [ ] add /events endpoint with all the events that happen to use from a dashboard or read from a script
-- [ ] add ability to serve as webdav in the /webdav endpoint (using flag --webdav)
-- [ ] add a manifest.json "file" that contains all the items that are shared with all the metadata we show in the output, the file is made in realtime
-- [ ] Basic auth --basic-user and --basic-password  which will accept a username and password to auth before, if only --basic-user is provided we only use username, if only -basic-password then we only ask for a password
-- [ ] add --qr flag that will show a tooltip with the QR of the link that leads to each file so that a phone can access the file download like this
-- [ ] add --encrypt which accepts a password and all files are only served as password protected zstd files
-- [ ] Single-use share tokens (ideas on how to do is needed)
-- [ ] curl examples for download
-- [ ] Add `--TTL` flag that accepts time (default is minutes but if a unit is added we use that), example: `10M`, `1H`, `3D`, `12Weeks`. We only count till launch, no storage of time, so if the client dies we reset
-- [ ] Add `--byte-limit` that stops sharing data after this limit. It accepts bytes by default, otherwise the same units as the `--limit` flag
-- [ ] Add `--max-count` that will limit each file to that count of downloads. Example: `--max-count 2` will allow each file to be downloaded twice. We do not remove the count if the file is not downloaded yet
-- [ ] Add `--whitelist` which accepts IPs to allow. These need to be tested against the proxied IPs too, so if they are behind a proxy we allow them with those IPs
-- [ ] Add `--blacklist` which accepts IPs and doesn't allow them to access the service at all. Again we check proxied IPs too
-- [ ] Add the ability for the user to select multiple files and download them as one archive (flag `--single-stream`). We pack in zstd or tar.gz on the fly, no storage of files. When this is enabled we show checkboxes to the user. If a user selects one or more then below the table we show a link named `archive.zstd` and one `archive.tar.gz` - whichever they choose that's the file they download
-- [ ] Add `--log filename.log` - we log everything to a log file
-- [ ] Add a `/stats` endpoint when the `--stats` flag is provided that shows live updated stats for the downloads
-- [ ] Add a TUI with the flag `--tui` that shows the live stats for everything getting downloaded etc (use our package)
-- [ ] add --https with selfsigned key/cert (we do it no the fly, we dont store it)
-- [ ] add --cert/--key flags to allow the usage of a real cert and its key for https (if the are valid we instantl support https)
-- [ ] At the bottom of the output screen add a row with "shs Version (version here) - link to the github project"
-- [ ] Readonly upload flag where we set a folder `--upload upload/` and the users see an upload button and they can upload files/folders. We need to show progress to the users
-- [ ] curl examples for the upload
+- [ ] `--limit` flag needs to be `--bw-limit` [#1]
+- [ ] add a --URL flag that will be used instead of the local ip/domain when we serve files, this will be used for files behind a proxy, it can accept an IP, IP:PORT, domain, domain:port [#2]
+- [ ] add an --idle flag, by default the server will close if the flag is used in 15m, otherwise this accepts time in minutes otherwise units like 10M, 4H, 4D, 1W, 1M [#3]
+- [ ] add flag --reload, which checks all the passed dirs/files for changes if new files are added/removed or files changed we update the output [#4]
+- [ ] sort on header label click [#5]
+- [ ] total size on all files in the bottom of the table including file count [#6]
+- [ ] /api/ endpoint where we only return proper json for use in scripts/tools, example /api/files will print out the output but in a json [#7]
+- [ ] In the bottom before the footer show links to all the supported endpoints [#8]
+- [ ] show each user which files they downloaded in full/partial [#9]
+- [ ] Add ability to preview/review certain file types (e.g., images, text files, PDFs) directly in the browser without downloading [#10]
+- [ ] add a command to show live stats (shs status) for when we run this as a service [#11]
+- [ ] Make this runnable as a service [#12]
+- [ ] allow clients to probe using head without downloading anything else [#13]
+- [ ] add download counters to the output so that after the date we show how many times a file has been downloaded [#14]
+- [ ] add verification endpoint, where the user can pass a filename and get the sha1 hash, example /verify?file=filename.ext [#15]
+- [ ] Add flag `--prefix` and `--suffix` that adds a prefix and suffix to the filenames [#16]
+- [ ] add /events endpoint with all the events that happen to use from a dashboard or read from a script [#17]
+- [ ] add ability to serve as webdav in the /webdav endpoint (using flag --webdav) [#18]
+- [ ] add a manifest.json "file" that contains all the items that are shared with all the metadata we show in the output, the file is made in realtime [#19]
+- [ ] Basic auth --basic-user and --basic-password  which will accept a username and password to auth before, if only --basic-user is provided we only use username, if only -basic-password then we only ask for a password [#20]
+- [ ] Add `--qr` flag that will show a tooltip/popup with a QR code for the direct download link to each file, allowing mobile devices to easily access files by scanning the QR code [#21]
+- [ ] add --encrypt which accepts a password and all files are only served as password protected zstd files [#22]
+- [ ] Single-use share tokens - implement a system where files can be accessed only once per token. Design discussion needed for implementation approach (token generation, storage, validation) [#23]
+- [ ] Add curl examples for both download and upload operations in the documentation [#24]
+- [ ] Add `--TTL` flag that accepts time (default is minutes but if a unit is added we use that), example: `10M`, `1H`, `3D`, `12Weeks`. We only count till launch, no storage of time, so if the client dies we reset [#25]
+- [ ] Add `--byte-limit` that stops sharing data after this limit. It accepts bytes by default, otherwise the same units as the `--limit` flag [#26]
+- [ ] Add `--max-count` that will limit each file to that count of downloads. Example: `--max-count 2` will allow each file to be downloaded twice. We do not remove the count if the file is not downloaded yet [#27]
+- [ ] Add `--whitelist` which accepts IPs to allow. These need to be tested against the proxied IPs too, so if they are behind a proxy we allow them with those IPs [#28]
+- [ ] Add `--blacklist` which accepts IPs and doesn't allow them to access the service at all. Again we check proxied IPs too [#29]
+- [ ] Add the ability for the user to select multiple files and download them as one archive (flag `--single-stream`). We pack in zstd or tar.gz on the fly, no storage of files. When this is enabled we show checkboxes to the user. If a user selects one or more then below the table we show a link named `archive.zstd` and one `archive.tar.gz` - whichever they choose that's the file they download [#30]
+- [ ] Add `--log filename.log` - we log everything to a log file [#31]
+- [ ] Add a `/stats` endpoint when the `--stats` flag is provided that shows live updated stats for the downloads [#32]
+- [ ] Add a CLI command `shs status` to show live stats when running as a service (separate from the TUI) [#33]
+- [ ] Add a TUI with the flag `--tui` that shows the live stats for everything getting downloaded etc (use our package) [#34]
+- [ ] Add `--https` with self-signed key/cert (we generate it on the fly, we don't store it) [#35]
+- [ ] Add `--cert`/`--key` flags to allow the usage of a real cert and its key for HTTPS (if they are valid we instantly support HTTPS) [#36]
+- [ ] At the bottom of the output screen add a row with "shs Version (version here) - link to the github project" [#37]
+- [ ] Readonly upload flag where we set a folder `--upload upload/` and the users see an upload button and they can upload files/folders. We need to show progress to the users [#38]
