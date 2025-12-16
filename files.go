@@ -131,16 +131,96 @@ func listFiles(paths []string, noHidden bool) ([]FileInfo, error) {
 	return filesInfo, nil
 }
 
+// formatSize formats file size in human-readable format
+func formatSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
 // renderFileList renders the HTML page listing all files.
 func renderFileList(w http.ResponseWriter, files []FileInfo) {
 	cw := &countingWriter{ResponseWriter: w}
-	tmpl := template.Must(template.New("index").Parse(`
-        <h1>Files</h1>
-        <ul>
+	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
+		"formatSize": formatSize,
+	}).Parse(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>File Listing</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        th:nth-child(2) {
+            text-align: right;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        td:nth-child(2) {
+            text-align: right;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>Files</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+            </tr>
+        </thead>
+        <tbody>
         {{range .}}
-            <li><a href="/{{.Name}}">{{.Name}}</a> - {{.Size}} bytes - {{.ModTime}}</li>
+            <tr>
+                <td><a href="/{{.Name}}">{{.Name}}</a></td>
+                <td>{{formatSize .Size}}</td>
+                <td>{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
+            </tr>
         {{end}}
-        </ul>
+        </tbody>
+    </table>
+</body>
+</html>
     `))
 	if err := tmpl.Execute(cw, files); err != nil {
 		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
