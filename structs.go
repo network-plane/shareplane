@@ -23,6 +23,7 @@ type countingWriter struct {
 	http.ResponseWriter
 	bytesWritten int64  // Track the number of bytes written
 	path         string // The path of the file being served
+	clientIP     string // The real client IP address
 }
 
 // rateLimitedWriter wraps a ResponseWriter and limits the write speed

@@ -10,11 +10,68 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
+// getRealIP extracts the real client IP from the request, handling proxy headers
+// Checks headers in order: X-Forwarded-For, X-Real-IP, X-Forwarded, CF-Connecting-IP
+// Falls back to RemoteAddr if no proxy headers are present
+func getRealIP(r *http.Request) string {
+	// Check X-Forwarded-For header (most common, can contain multiple IPs)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+		// The first one is the original client IP
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			ip := strings.TrimSpace(ips[0])
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+
+	// Check X-Real-IP header (common in nginx and other proxies)
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Check X-Forwarded header
+	if xf := r.Header.Get("X-Forwarded"); xf != "" {
+		// X-Forwarded format: "for=192.0.2.60;proto=http;by=203.0.113.43"
+		parts := strings.Split(xf, ";")
+		for _, part := range parts {
+			if strings.HasPrefix(part, "for=") {
+				ip := strings.TrimPrefix(part, "for=")
+				ip = strings.TrimSpace(ip)
+				// Remove port if present (for=192.0.2.60:12345)
+				if idx := strings.LastIndex(ip, ":"); idx > 0 {
+					ip = ip[:idx]
+				}
+				if ip != "" {
+					return ip
+				}
+			}
+		}
+	}
+
+	// Check CF-Connecting-IP (Cloudflare)
+	if cfip := r.Header.Get("CF-Connecting-IP"); cfip != "" {
+		return strings.TrimSpace(cfip)
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// If SplitHostPort fails, RemoteAddr might not have a port
+		return r.RemoteAddr
+	}
+	return ip
+}
+
 func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	path := r.URL.Path[1:] // Strip the leading slash
+	clientIP := getRealIP(r)
 
 	// Apply bandwidth limiting if specified
 	finalWriter := http.ResponseWriter(w)
@@ -26,7 +83,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 		}
 	}
 
-	cw := &countingWriter{ResponseWriter: finalWriter, path: path}
+	cw := &countingWriter{ResponseWriter: finalWriter, path: path, clientIP: clientIP}
 
 	// Determine the file size
 	fileInfo, err := os.Stat(path)
