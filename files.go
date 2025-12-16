@@ -10,11 +10,23 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-func serveFile(w http.ResponseWriter, r *http.Request) {
+func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	path := r.URL.Path[1:] // Strip the leading slash
-	cw := &countingWriter{ResponseWriter: w, path: path}
+
+	// Apply bandwidth limiting if specified
+	finalWriter := http.ResponseWriter(w)
+	if bandwidthLimit > 0 {
+		finalWriter = &rateLimitedWriter{
+			ResponseWriter: w,
+			bytesPerSecond: bandwidthLimit,
+			lastWrite:      time.Now(),
+		}
+	}
+
+	cw := &countingWriter{ResponseWriter: finalWriter, path: path}
 
 	// Determine the file size
 	fileInfo, err := os.Stat(path)
@@ -40,10 +52,10 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
-			serveFile(w, r)
+			serveFile(w, r, bandwidthLimit)
 			return
 		}
 		filesInfo, err := listFiles(filePaths, showHidden, hash, maxHashSize)
