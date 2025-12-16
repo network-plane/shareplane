@@ -47,7 +47,7 @@ func serveFiles(filePaths []string, ip string, port string, noHidden bool) {
 	})
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
-	
+
 	// If listening on 0.0.0.0, show all available IP addresses
 	if ip == "0.0.0.0" {
 		fmt.Printf("Serving on http://%s\n", listenAddress)
