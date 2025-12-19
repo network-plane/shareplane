@@ -112,9 +112,24 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
+			// Check if the requested path is a directory
+			requestedPath := r.URL.Path[1:] // Strip the leading slash
+			fileInfo, err := os.Stat(requestedPath)
+			if err == nil && fileInfo.IsDir() {
+				// It's a directory, list its contents with styled HTML
+				filesInfo, err := listFilesInDir(requestedPath, showHidden, hash, maxHashSize)
+				if err != nil {
+					http.Error(w, "Failed to list directory", http.StatusInternalServerError)
+					return
+				}
+				renderFileList(w, filesInfo, hash, colorScheme)
+				return
+			}
+			// It's a file, serve it normally
 			serveFile(w, r, bandwidthLimit)
 			return
 		}
+		// Root path, list all shared files/directories
 		filesInfo, err := listFiles(filePaths, showHidden, hash, maxHashSize)
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
@@ -177,6 +192,60 @@ func calculateSHA1(filePath string) (string, error) {
 	}
 
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+// listFilesInDir generates a slice of FileInfo for files in a specific directory.
+func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int64) ([]FileInfo, error) {
+	var filesInfo []FileInfo
+	
+	fileInfo, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("error: cannot access '%s': %w", dirPath, err)
+	}
+	
+	if !fileInfo.IsDir() {
+		return nil, fmt.Errorf("error: '%s' is not a directory", dirPath)
+	}
+	
+	dirFiles, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("error: cannot read directory '%s': %w", dirPath, err)
+	}
+	
+	for _, f := range dirFiles {
+		// Skip hidden files unless showHidden flag is set
+		if !showHidden && isHidden(f.Name()) {
+			continue
+		}
+		
+		fileInfo, err := f.Info()
+		if err != nil {
+			return nil, fmt.Errorf("error: cannot get file info for '%s': %w", filepath.Join(dirPath, f.Name()), err)
+		}
+		
+		fullPath := filepath.Join(dirPath, f.Name())
+		fileSize := fileInfo.Size()
+		
+		// Calculate hash if enabled and file size is within limit
+		var hashValue string
+		if hash && !fileInfo.IsDir() {
+			if maxHashSize == 0 || fileSize <= maxHashSize {
+				hash, err := calculateSHA1(fullPath)
+				if err == nil {
+					hashValue = hash
+				}
+			}
+		}
+		
+		filesInfo = append(filesInfo, FileInfo{
+			Name:    fullPath,
+			Size:    fileSize,
+			ModTime: fileInfo.ModTime(),
+			Hash:    hashValue,
+		})
+	}
+	
+	return filesInfo, nil
 }
 
 // listFiles generates a slice of FileInfo for the given paths, including expanding glob patterns.
