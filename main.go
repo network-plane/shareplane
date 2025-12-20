@@ -17,7 +17,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.73"
+	appVersion     = "1.1.79"
 	port           string
 	ip             string
 	showHidden     bool
@@ -99,6 +99,9 @@ func main() {
 			}
 			rateLimiterMutex.Unlock()
 
+			// Set version for files.go
+			setAppVersion(appVersion)
+			
 			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload)
 		},
 	}
