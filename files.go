@@ -446,6 +446,25 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
             padding: 12px;
             text-align: left;
             font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        th:hover {
+            opacity: 0.9;
+        }
+        th.sortable::after {
+            content: ' ↕';
+            opacity: 0.5;
+            font-size: 0.8em;
+        }
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
         }
         th:nth-child(2) {
             text-align: right;
@@ -479,23 +498,87 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
     <table>
         <thead>
             <tr>
-                <th>Name</th>
-                <th>Size</th>
-                {{if .ShowHash}}<th>SHA1</th>{{end}}
-                <th>Modified</th>
+                <th class="sortable" data-sort="name" data-sort-type="string">Name</th>
+                <th class="sortable" data-sort="size" data-sort-type="number">Size</th>
+                {{if .ShowHash}}<th class="sortable" data-sort="hash" data-sort-type="string">SHA1</th>{{end}}
+                <th class="sortable" data-sort="modified" data-sort-type="number">Modified</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="fileTableBody">
         {{range .Files}}
             <tr>
-                <td><a href="/{{.DisplayName}}">{{.DisplayName}}</a></td>
-                <td>{{formatSize .Size}}</td>
-                {{if $.ShowHash}}<td class="hash">{{if .Hash}}{{.Hash}}{{else}}-{{end}}</td>{{end}}
-                <td>{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
+                <td data-sort-value="{{.DisplayName}}"><a href="/{{.DisplayName}}">{{.DisplayName}}</a></td>
+                <td data-sort-value="{{.Size}}">{{formatSize .Size}}</td>
+                {{if $.ShowHash}}<td class="hash" data-sort-value="{{if .Hash}}{{.Hash}}{{else}}0{{end}}">{{if .Hash}}{{.Hash}}{{else}}-{{end}}</td>{{end}}
+                <td data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
             </tr>
         {{end}}
         </tbody>
     </table>
+    <script>
+        (function() {
+            const tableBody = document.getElementById('fileTableBody');
+            const headers = document.querySelectorAll('th.sortable');
+            let currentSort = { column: null, direction: 'asc' };
+            
+            function sortTable(columnIndex, sortType) {
+                const rows = Array.from(tableBody.querySelectorAll('tr'));
+                const isAsc = currentSort.column === columnIndex && currentSort.direction === 'asc';
+                const newDirection = isAsc ? 'desc' : 'asc';
+                
+                rows.sort((a, b) => {
+                    const aCell = a.cells[columnIndex];
+                    const bCell = b.cells[columnIndex];
+                    
+                    if (!aCell || !bCell) return 0;
+                    
+                    const aValue = aCell.getAttribute('data-sort-value') || '';
+                    const bValue = bCell.getAttribute('data-sort-value') || '';
+                    
+                    let comparison = 0;
+                    
+                    if (sortType === 'number') {
+                        const aNum = parseFloat(aValue) || 0;
+                        const bNum = parseFloat(bValue) || 0;
+                        comparison = aNum - bNum;
+                    } else {
+                        // String comparison (case-insensitive, natural sort)
+                        comparison = aValue.localeCompare(bValue, undefined, { 
+                            numeric: true, 
+                            sensitivity: 'base',
+                            caseFirst: 'false'
+                        });
+                    }
+                    
+                    return newDirection === 'asc' ? comparison : -comparison;
+                });
+                
+                // Remove all rows
+                rows.forEach(row => tableBody.removeChild(row));
+                
+                // Add sorted rows back in new order
+                rows.forEach(row => tableBody.appendChild(row));
+                
+                // Update header classes to show sort direction
+                headers.forEach((header, idx) => {
+                    header.classList.remove('sort-asc', 'sort-desc');
+                    if (idx === columnIndex) {
+                        header.classList.add('sort-' + newDirection);
+                    }
+                });
+                
+                currentSort = { column: columnIndex, direction: newDirection };
+            }
+            
+            // Add click handlers to all sortable headers
+            headers.forEach((header, index) => {
+                header.addEventListener('click', () => {
+                    const sortType = header.getAttribute('data-sort-type');
+                    sortTable(index, sortType);
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
     `))
