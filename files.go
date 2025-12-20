@@ -72,10 +72,11 @@ func getRealIP(r *http.Request) string {
 func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	path := r.URL.Path[1:] // Strip the leading slash
 	clientIP := getRealIP(r)
+	isHEAD := r.Method == "HEAD"
 
-	// Apply bandwidth limiting if specified
+	// Apply bandwidth limiting if specified (not needed for HEAD requests)
 	finalWriter := http.ResponseWriter(w)
-	if bandwidthLimit > 0 {
+	if bandwidthLimit > 0 && !isHEAD {
 		finalWriter = &rateLimitedWriter{
 			ResponseWriter: w,
 			bytesPerSecond: bandwidthLimit,
@@ -83,7 +84,12 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 		}
 	}
 
-	cw := &countingWriter{ResponseWriter: finalWriter, path: path, clientIP: clientIP}
+	// Only wrap with countingWriter if not HEAD (HEAD requests don't send body, so no need to count)
+	var cw *countingWriter
+	if !isHEAD {
+		cw = &countingWriter{ResponseWriter: finalWriter, path: path, clientIP: clientIP}
+		finalWriter = cw
+	}
 
 	// Determine the file size
 	fileInfo, err := os.Stat(path)
@@ -97,14 +103,19 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	isRangeRequest := r.Header.Get("Range") != ""
 
 	// http.ServeFile automatically handles HTTP Range requests (206 Partial Content)
-	// This enables resuming downloads and partial file fetches
-	http.ServeFile(cw, r, path)
-	cw.finish()
+	// and HEAD requests (returns headers only, no body)
+	// This enables resuming downloads, partial file fetches, and probing files without downloading
+	http.ServeFile(finalWriter, r, path)
+	
+	// Only track stats and check completion for non-HEAD requests
+	if !isHEAD && cw != nil {
+		cw.finish()
 
-	// Check if the download was complete (only warn for non-Range requests)
-	// Range requests intentionally send fewer bytes, so don't warn for those
-	if !isRangeRequest && cw.bytesWritten < fileSize {
-		fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", path, cw.bytesWritten, fileSize)
+		// Check if the download was complete (only warn for non-Range requests)
+		// Range requests intentionally send fewer bytes, so don't warn for those
+		if !isRangeRequest && cw.bytesWritten < fileSize {
+			fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", path, cw.bytesWritten, fileSize)
+		}
 	}
 }
 
@@ -116,6 +127,13 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			requestedPath := r.URL.Path[1:] // Strip the leading slash
 			fileInfo, err := os.Stat(requestedPath)
 			if err == nil && fileInfo.IsDir() {
+				// Handle HEAD requests for directories
+				if r.Method == "HEAD" {
+					// Return headers only for HEAD requests on directories
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.WriteHeader(http.StatusOK)
+					return
+				}
 				// It's a directory, list its contents with styled HTML
 				filesInfo, err := listFilesInDir(requestedPath, showHidden, hash, maxHashSize)
 				if err != nil {
@@ -130,6 +148,12 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			return
 		}
 		// Root path, list all shared files/directories
+		// Handle HEAD requests for root
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		filesInfo, err := listFiles(filePaths, showHidden, hash, maxHashSize)
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
