@@ -75,4 +75,10 @@ var (
 	rateLimiterMutex  sync.Mutex
 	globalFileWatcher *fileWatcher
 	fileWatcherMutex  sync.Mutex
+	
+	// Idle timeout tracking
+	lastActivity   time.Time
+	lastActivityMu sync.RWMutex
+	httpServer    *http.Server
+	httpServerMu  sync.RWMutex
 )

@@ -17,6 +17,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **Customizable Colors**: Customize the color scheme of the file listing interface
 - **Bandwidth Limiting**: Optional bandwidth throttling for file transfers
 - **Rate Limiting**: Built-in DoS protection with per-IP request rate limiting (default: 20 req/s)
+- **Idle Timeout**: Automatically shut down the server after a period of inactivity
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -91,6 +92,20 @@ Serve multiple files and directories:
   ./shareplane --rate-limit 30 /path/to/directory    # Allow 30 requests/second per IP
   ./shareplane --rate-limit 0 /path/to/directory      # Disable rate limiting
   ./shareplane /path/to/directory                     # Uses default: 20 requests/second per IP
+  ```
+
+- `--reload`: Enable auto-reload: monitor files for changes in real-time using file system notifications (new files, removed files, modified files)
+  ```bash
+  ./shareplane --reload /path/to/directory
+  ```
+
+- `--idle`: Idle timeout: server shuts down after this period of inactivity. Default: 15m if flag is set without value. Supports units: M (minutes), H (hours), D (days), W (weeks), Mo (months). Examples: `15m`, `1H`, `4D`, `1W`, `1Mo`
+  ```bash
+  ./shareplane --idle file.txt                    # Default: 15 minutes
+  ./shareplane --idle 30m /path/to/directory     # 30 minutes
+  ./shareplane --idle 2H /path/to/directory      # 2 hours
+  ./shareplane --idle 1D /path/to/directory       # 1 day
+  ./shareplane --idle 1W /path/to/directory       # 1 week
   ```
 
 - `--colours`: Customize the color scheme of the file listing interface. Requires 7 comma-separated colors in this order:

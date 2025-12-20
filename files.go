@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
@@ -123,16 +124,79 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 	}
 }
 
+// updateLastActivity updates the last activity timestamp (thread-safe)
+func updateLastActivity() {
+	lastActivityMu.Lock()
+	lastActivity = time.Now()
+	lastActivityMu.Unlock()
+}
+
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration) {
 	// Initialize allowed paths for security validation
 	if err := initAllowedPaths(filePaths); err != nil {
 		fmt.Printf("Error initializing allowed paths: %v\n", err)
 		os.Exit(1)
 	}
 	
+	// Set up idle timeout tracking
+	if idleTimeout > 0 {
+		// Initialize last activity to now
+		updateLastActivity()
+		
+		// Start idle timeout checker
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			
+			for {
+				select {
+				case <-ticker.C:
+					lastActivityMu.RLock()
+					last := lastActivity
+					lastActivityMu.RUnlock()
+					
+					if time.Since(last) >= idleTimeout {
+						fmt.Printf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
+						
+						// Cleanup rate limiter
+						rateLimiterMutex.Lock()
+						if globalRateLimiter != nil {
+							globalRateLimiter.stop()
+						}
+						rateLimiterMutex.Unlock()
+						
+						// Cleanup file watcher
+						fileWatcherMutex.Lock()
+						if globalFileWatcher != nil {
+							globalFileWatcher.stop()
+						}
+						fileWatcherMutex.Unlock()
+						
+						// Shutdown HTTP server gracefully
+						httpServerMu.RLock()
+						server := httpServer
+						httpServerMu.RUnlock()
+						
+						if server != nil {
+							ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+							defer cancel()
+							server.Shutdown(ctx)
+						}
+						
+						printStats()
+						os.Exit(0)
+					}
+				}
+			}
+		}()
+		
+		fmt.Printf("[Idle Timeout] Server will shut down after %v of inactivity\n", idleTimeout)
+	}
+	
 	// API endpoint for JSON data
 	http.HandleFunc("/api/files", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
 		// Get path parameter (optional, defaults to root)
 		requestedPath := r.URL.Query().Get("path")
 		
@@ -213,6 +277,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	}, getRealIP))
 	
 	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
 		if r.URL.Path != "/" {
 			// Strip the leading slash and validate path
 			requestedPath := r.URL.Path[1:]
@@ -301,7 +366,21 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		fmt.Printf("Serving on http://%s\n", listenAddress)
 	}
 
-	log.Fatal(http.ListenAndServe(listenAddress, nil))
+	// Create HTTP server for graceful shutdown support
+	server := &http.Server{
+		Addr:    listenAddress,
+		Handler: nil,
+	}
+	
+	// Store server reference for idle timeout shutdown
+	httpServerMu.Lock()
+	httpServer = server
+	httpServerMu.Unlock()
+	
+	// Start server
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
 }
 
 // isHidden checks if a file or directory name starts with a dot (hidden file).

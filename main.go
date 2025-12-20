@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,7 @@ var (
 	colours        string
 	rateLimit      float64 = -1 // -1 means use default, 0 means disable, >0 means use this value
 	reload         bool
+	idle           string  // Idle timeout (empty = disabled, "15m" = default when flag is set)
 )
 
 func main() {
@@ -102,7 +104,19 @@ func main() {
 			// Set version for files.go
 			setAppVersion(appVersion)
 			
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload)
+			// Parse idle timeout if specified
+			var idleTimeout time.Duration
+			if cmd.Flags().Changed("idle") {
+				// Flag was set, parse it (empty string means default 15m)
+				parsed, err := parseIdleTimeout(idle)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid idle timeout '%s': %v\n", idle, err)
+					os.Exit(1)
+				}
+				idleTimeout = parsed
+			}
+			
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout)
 		},
 	}
 
@@ -118,6 +132,7 @@ func main() {
 	rootCmd.Flags().Float64Var(&rateLimit, "rate-limit", -1, "Rate limit: maximum requests per second per IP address (default: 20, use 0 to disable). Recommended: 10-30 for normal use, higher for automated tools.")
 	rootCmd.Flags().BoolVar(&reload, "reload", false, "Enable auto-reload: monitor files for changes in real-time using file system notifications (new files, removed files, modified files)")
 	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
+	rootCmd.Flags().StringVar(&idle, "idle", "", "Idle timeout: server shuts down after this period of inactivity. Default: 15m if flag is set without value. Supports units: M (minutes), H (hours), D (days), W (weeks), Mo (months). Examples: 15m, 1H, 4D, 1W, 1Mo")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -180,6 +195,59 @@ func parseBandwidthLimit(limit string) (int64, error) {
 	}
 
 	return int64(value * multiplier), nil
+}
+
+// parseIdleTimeout parses an idle timeout string and returns a time.Duration.
+// Supports formats like: "15m", "1H", "4D", "1W", "1Mo" or plain minutes "15"
+// If empty string is provided, returns 15 minutes (default when flag is set)
+func parseIdleTimeout(timeout string) (time.Duration, error) {
+	timeout = strings.TrimSpace(timeout)
+	if timeout == "" {
+		// Default to 15 minutes when flag is set without value
+		return 15 * time.Minute, nil
+	}
+
+	// Try to parse as plain number (minutes)
+	if val, err := strconv.ParseFloat(timeout, 64); err == nil {
+		return time.Duration(val) * time.Minute, nil
+	}
+
+	// Parse with unit (e.g., "15m", "1H", "4D", "1W", "1Mo")
+	// Match pattern: optional decimal number, unit (case insensitive)
+	// Note: "Mo" must come before "M" in the alternation to match months correctly
+	re := regexp.MustCompile(`(?i)^([\d.]+)\s*(Mo|[MHDW])$`)
+	matches := re.FindStringSubmatch(timeout)
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid format, expected number with unit (e.g., 15m, 1H, 4D, 1W, 1Mo)")
+	}
+
+	valueStr := matches[1]
+	unit := strings.ToUpper(matches[2])
+
+	// Parse the numeric value (supports decimals like 1.5)
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number: %w", err)
+	}
+
+	// Convert to time.Duration
+	var multiplier time.Duration
+	switch unit {
+	case "M":
+		multiplier = time.Minute
+	case "H":
+		multiplier = time.Hour
+	case "D":
+		multiplier = 24 * time.Hour
+	case "W":
+		multiplier = 7 * 24 * time.Hour
+	case "MO":
+		multiplier = 30 * 24 * time.Hour // Approximate month as 30 days
+	default:
+		return 0, fmt.Errorf("unsupported unit: %s (supported: M, H, D, W, Mo)", unit)
+	}
+
+	return time.Duration(value * float64(multiplier)), nil
 }
 
 // colorScheme holds the color configuration for the HTML output
