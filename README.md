@@ -79,10 +79,10 @@ Serve multiple files and directories:
   ./shareplane --hash --max-hash-size 10485760 /path/to/directory  # Only hash files up to 10MB
   ```
 
-- `--limit`: Bandwidth limit for file transfers (e.g., `5MB`, `250KB`, `5M`, `1.4G`, or plain bytes). No limit if not specified.
+- `--bw-limit`: Bandwidth limit for file transfers (e.g., `5MB`, `250KB`, `5M`, `1.4G`, or plain bytes). No limit if not specified.
   ```bash
-  ./shareplane --limit 5MB /path/to/directory  # Limit to 5MB/s
-  ./shareplane --limit 1.4G /path/to/directory  # Limit to 1.4GB/s
+  ./shareplane --bw-limit 5MB /path/to/directory  # Limit to 5MB/s
+  ./shareplane --bw-limit 1.4G /path/to/directory  # Limit to 1.4GB/s
   ```
 
 - `--colours`: Customize the color scheme of the file listing interface. Requires 7 comma-separated colors in this order:
@@ -136,7 +136,7 @@ Show SHA1 hashes with size limit (only hash files up to 100MB):
 
 Limit bandwidth to 5MB/s:
 ```bash
-./shareplane --limit 5MB /path/to/directory
+./shareplane --bw-limit 5MB /path/to/directory
 ```
 
 Customize colors with a dark theme:
