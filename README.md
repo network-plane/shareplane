@@ -16,6 +16,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **File Hashing**: Optional SHA1 hash calculation and display for files in listings
 - **Customizable Colors**: Customize the color scheme of the file listing interface
 - **Bandwidth Limiting**: Optional bandwidth throttling for file transfers
+- **Rate Limiting**: Built-in DoS protection with per-IP request rate limiting (default: 20 req/s)
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -83,6 +84,13 @@ Serve multiple files and directories:
   ```bash
   ./shareplane --bw-limit 5MB /path/to/directory  # Limit to 5MB/s
   ./shareplane --bw-limit 1.4G /path/to/directory  # Limit to 1.4GB/s
+  ```
+
+- `--rate-limit`: Rate limit: maximum requests per second per IP address (default: 20, use 0 to disable). Helps protect against DoS attacks while allowing normal browsing.
+  ```bash
+  ./shareplane --rate-limit 30 /path/to/directory    # Allow 30 requests/second per IP
+  ./shareplane --rate-limit 0 /path/to/directory      # Disable rate limiting
+  ./shareplane /path/to/directory                     # Uses default: 20 requests/second per IP
   ```
 
 - `--colours`: Customize the color scheme of the file listing interface. Requires 7 comma-separated colors in this order:

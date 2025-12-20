@@ -12,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	defaultRateLimit = 20.0 // Default: 20 requests per second per IP (allows normal browsing, prevents abuse)
+)
+
 var (
 	appVersion     = "1.1.73"
 	port           string
@@ -21,6 +25,7 @@ var (
 	maxHashSize    int64
 	bandwidthLimit string
 	colours        string
+	rateLimit      float64 = -1 // -1 means use default, 0 means disable, >0 means use this value
 )
 
 func main() {
@@ -71,6 +76,28 @@ func main() {
 				}
 				colorScheme = parsed
 			}
+			// Initialize rate limiter
+			// -1 means use default, 0 means disable, >0 means use this value
+			rateLimiterMutex.Lock()
+			var limitValue float64
+			if rateLimit < 0 {
+				// Use default
+				limitValue = defaultRateLimit
+			} else if rateLimit == 0 {
+				// Explicitly disabled
+				limitValue = 0
+			} else {
+				// Use specified value
+				limitValue = rateLimit
+			}
+			
+			if limitValue > 0 {
+				globalRateLimiter = newRateLimiter(limitValue)
+			} else {
+				globalRateLimiter = nil
+			}
+			rateLimiterMutex.Unlock()
+
 			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme)
 		},
 	}
@@ -84,6 +111,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&hash, "hash", false, "Calculate and display SHA1 hash for files in the listing")
 	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
 	rootCmd.Flags().StringVar(&bandwidthLimit, "bw-limit", "", "Bandwidth limit (e.g., 5MB, 250KB, 5M, 1.4G, or plain bytes). No limit if not specified.")
+	rootCmd.Flags().Float64Var(&rateLimit, "rate-limit", -1, "Rate limit: maximum requests per second per IP address (default: 20, use 0 to disable). Recommended: 10-30 for normal use, higher for automated tools.")
 	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
 
 	if err := rootCmd.Execute(); err != nil {
@@ -215,6 +243,12 @@ func setupSignalHandling() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
+		// Cleanup rate limiter
+		rateLimiterMutex.Lock()
+		if globalRateLimiter != nil {
+			globalRateLimiter.stop()
+		}
+		rateLimiterMutex.Unlock()
 		printStats()
 		os.Exit(0)
 	}()

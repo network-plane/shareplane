@@ -42,3 +42,25 @@ type FileInfo struct {
 	ModTime time.Time
 	Hash    string // SHA1 hash (empty if not calculated)
 }
+
+// rateLimiter implements a token bucket rate limiter per IP address
+type rateLimiter struct {
+	requestsPerSecond float64
+	burstSize         int
+	clients           map[string]*clientLimiter
+	mu                sync.RWMutex
+	cleanupTicker     *time.Ticker
+	cleanupDone       chan struct{}
+}
+
+// clientLimiter tracks rate limiting state for a single client IP
+type clientLimiter struct {
+	tokens     float64
+	lastUpdate time.Time
+	mu         sync.Mutex
+}
+
+var (
+	globalRateLimiter *rateLimiter
+	rateLimiterMutex  sync.Mutex
+)
