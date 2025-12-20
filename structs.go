@@ -37,11 +37,20 @@ type rateLimitedWriter struct {
 
 // FileInfo is a struct to hold detailed information about files.
 type FileInfo struct {
-	Name        string // Full absolute path (internal use only)
-	DisplayName string // Relative path for display (safe to show)
-	Size        int64
-	ModTime     time.Time
-	Hash        string // SHA1 hash (empty if not calculated)
+	Name        string    `json:"name"`         // Full absolute path (internal use only)
+	DisplayName string    `json:"displayName"`  // Relative path for display (safe to show)
+	Size        int64     `json:"size"`         // File size in bytes
+	ModTime     time.Time `json:"modTime"`      // Modification time
+	Hash        string    `json:"hash"`         // SHA1 hash (empty if not calculated)
+	IsDir       bool      `json:"isDir"`        // Whether this is a directory
+}
+
+// apiResponse represents the JSON response from /api/files
+type apiResponse struct {
+	Files     []FileInfo `json:"files"`
+	TotalSize int64      `json:"totalSize"`
+	FileCount int        `json:"fileCount"`
+	ShowHash  bool       `json:"showHash"`
 }
 
 // rateLimiter implements a token bucket rate limiter per IP address

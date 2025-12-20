@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha1"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -130,6 +131,87 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		os.Exit(1)
 	}
 	
+	// API endpoint for JSON data
+	http.HandleFunc("/api/files", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// Get path parameter (optional, defaults to root)
+		requestedPath := r.URL.Query().Get("path")
+		
+		var filesInfo []FileInfo
+		var err error
+		
+		if requestedPath == "" {
+			// Root path - list all shared files/directories
+			filesInfo, err = listFiles(filePaths, showHidden, hash, maxHashSize)
+		} else {
+			// Validate path
+			validatedPath, allowed := isPathAllowed(requestedPath)
+			if !allowed {
+				http.Error(w, "Path not found", http.StatusNotFound)
+				return
+			}
+			
+			fileInfo, err := os.Stat(validatedPath)
+			if err != nil {
+				http.Error(w, "Path not found", http.StatusNotFound)
+				return
+			}
+			
+			if fileInfo.IsDir() {
+				filesInfo, err = listFilesInDir(validatedPath, showHidden, hash, maxHashSize)
+			} else {
+				// Single file
+				filesInfo = []FileInfo{{
+					Name:        validatedPath,
+					DisplayName: getRelativePath(validatedPath, filePaths),
+					Size:        fileInfo.Size(),
+					ModTime:     fileInfo.ModTime(),
+					IsDir:       false,
+				}}
+			}
+		}
+		
+		if err != nil {
+			http.Error(w, "Failed to list files", http.StatusInternalServerError)
+			return
+		}
+		
+		// Convert to display names and calculate totals
+		displayFiles := make([]FileInfo, len(filesInfo))
+		var totalSize int64
+		var fileCount int
+		
+		for i, f := range filesInfo {
+			displayFiles[i] = f
+			if displayFiles[i].DisplayName == "" {
+				displayFiles[i].DisplayName = getRelativePath(f.Name, filePaths)
+			}
+			
+			// Check if it's a directory
+			fileInfo, err := os.Stat(f.Name)
+			if err == nil {
+				displayFiles[i].IsDir = fileInfo.IsDir()
+				if !fileInfo.IsDir() {
+					totalSize += f.Size
+					fileCount++
+				}
+			}
+		}
+		
+		// Return JSON response
+		w.Header().Set("Content-Type", "application/json")
+		response := apiResponse{
+			Files:     displayFiles,
+			TotalSize: totalSize,
+			FileCount: fileCount,
+			ShowHash:  hash,
+		}
+		
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}, getRealIP))
+	
 	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			// Strip the leading slash and validate path
@@ -156,33 +238,23 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					w.WriteHeader(http.StatusOK)
 					return
 				}
-				// It's a directory, list its contents with styled HTML
-				filesInfo, err := listFilesInDir(validatedPath, showHidden, hash, maxHashSize)
-				if err != nil {
-					// Don't leak path information in errors
-					http.Error(w, "Failed to list directory", http.StatusInternalServerError)
-					return
-				}
-				renderFileList(w, filesInfo, hash, colorScheme, filePaths)
+				// It's a directory - serve the client-side HTML app with path parameter
+				renderClientApp(w, hash, colorScheme)
 				return
 			}
 			// It's a file, serve it normally (validatedPath is already validated)
 			serveFile(w, r, bandwidthLimit, validatedPath)
 			return
 		}
-		// Root path, list all shared files/directories
+		// Root path - serve the client-side HTML app
 		// Handle HEAD requests for root
 		if r.Method == "HEAD" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		filesInfo, err := listFiles(filePaths, showHidden, hash, maxHashSize)
-		if err != nil {
-			http.Error(w, "Failed to list files", http.StatusInternalServerError)
-			return
-		}
-		renderFileList(w, filesInfo, hash, colorScheme, filePaths)
+		// Serve the client-side HTML that will fetch from /api/files
+		renderClientApp(w, hash, colorScheme)
 	}, getRealIP))
 
 	// Start file watcher if reload is enabled
@@ -417,7 +489,346 @@ type templateData struct {
 	FileCount   int
 }
 
-// renderFileList renders the HTML page listing all files.
+// renderClientApp renders the client-side HTML application that fetches data from the API
+func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme) {
+	cw := &countingWriter{ResponseWriter: w}
+	tmpl := template.Must(template.New("clientApp").Funcs(template.FuncMap{
+		"formatSize": formatSize,
+	}).Parse(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>File Listing</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.Background}};{{else}}background-color: #f5f5f5;{{end}}
+        }
+        h1 {
+            {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: #333;{{end}}
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableBg}};{{else}}background-color: white;{{end}}
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th {
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #4CAF50;{{end}}
+            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: white;{{end}}
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        th:hover {
+            opacity: 0.9;
+        }
+        th.sortable::after {
+            content: ' ↕';
+            opacity: 0.5;
+            font-size: 0.8em;
+        }
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        th:nth-child(2) {
+            text-align: right;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+            {{if .ColorScheme}}color: {{.ColorScheme.TableOtherText}};{{end}}
+        }
+        td:nth-child(2) {
+            text-align: right;
+        }
+        .hash {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        a {
+            {{if .ColorScheme}}color: {{.ColorScheme.TableFilenameText}};{{else}}color: #2196F3;{{end}}
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        tfoot {
+            border-top: 2px solid #ddd;
+        }
+        tfoot td {
+            font-weight: bold;
+            padding: 12px;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #f9f9f9;{{end}}
+            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: #333;{{end}}
+        }
+        tfoot td:nth-child(2) {
+            text-align: right;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: #d32f2f;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Files</h1>
+    <div id="loading" class="loading">Loading...</div>
+    <div id="error" class="error" style="display: none;"></div>
+    <table id="fileTable" style="display: none;">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="name" data-sort-type="string">Name</th>
+                <th class="sortable" data-sort="size" data-sort-type="number">Size</th>
+                <th id="hashHeader" class="sortable" data-sort="hash" data-sort-type="string" style="display: none;">SHA1</th>
+                <th class="sortable" data-sort="modified" data-sort-type="number">Modified</th>
+            </tr>
+        </thead>
+        <tbody id="fileTableBody">
+        </tbody>
+        <tfoot id="fileTableFooter">
+        </tfoot>
+    </table>
+    <script>
+        (function() {
+            const tableBody = document.getElementById('fileTableBody');
+            const tableFooter = document.getElementById('fileTableFooter');
+            const table = document.getElementById('fileTable');
+            const loading = document.getElementById('loading');
+            const errorDiv = document.getElementById('error');
+            const hashHeader = document.getElementById('hashHeader');
+            let currentFiles = [];
+            let currentSort = { column: null, direction: 'asc' };
+            let showHash = false;
+            
+            // Get current path from URL
+            function getCurrentPath() {
+                const path = window.location.pathname;
+                return path === '/' ? '' : path.substring(1);
+            }
+            
+            // Format file size
+            function formatSize(size) {
+                const unit = 1024;
+                if (size < unit) return size + ' B';
+                let div = unit, exp = 0;
+                for (let n = size / unit; n >= unit; n /= unit) {
+                    div *= unit;
+                    exp++;
+                }
+                return (size / div).toFixed(1) + ' ' + 'KMGTPE'[exp] + 'B';
+            }
+            
+            // Format date from ISO string
+            function formatDate(dateStr) {
+                const date = new Date(dateStr);
+                if (isNaN(date.getTime())) {
+                    return dateStr; // Return as-is if invalid
+                }
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
+            }
+            
+            // Fetch files from API
+            async function fetchFiles(path) {
+                try {
+                    loading.style.display = 'block';
+                    errorDiv.style.display = 'none';
+                    table.style.display = 'none';
+                    
+                    const url = path ? '/api/files?path=' + encodeURIComponent(path) : '/api/files';
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch files');
+                    }
+                    
+                    const data = await response.json();
+                    currentFiles = data.files || [];
+                    showHash = data.showHash || false;
+                    
+                    // Show/hide hash column
+                    hashHeader.style.display = showHash ? '' : 'none';
+                    
+                    renderTable(data);
+                    loading.style.display = 'none';
+                    table.style.display = '';
+                } catch (err) {
+                    loading.style.display = 'none';
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = 'Error loading files: ' + err.message;
+                }
+            }
+            
+            // Render table from API data
+            function renderTable(data) {
+                tableBody.innerHTML = '';
+                
+                data.files.forEach(file => {
+                    const row = document.createElement('tr');
+                    
+                    // Name column (link if not directory, otherwise navigate)
+                    const nameCell = document.createElement('td');
+                    const link = document.createElement('a');
+                    if (file.isDir) {
+                        link.href = '/' + file.displayName;
+                        link.textContent = file.displayName + '/';
+                        // Prevent default navigation, fetch directory contents instead
+                        link.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            window.history.pushState({path: file.displayName}, '', '/' + file.displayName);
+                            fetchFiles(file.displayName);
+                        });
+                    } else {
+                        link.href = '/' + file.displayName;
+                        link.textContent = file.displayName;
+                    }
+                    nameCell.setAttribute('data-sort-value', file.displayName);
+                    nameCell.appendChild(link);
+                    row.appendChild(nameCell);
+                    
+                    // Size column
+                    const sizeCell = document.createElement('td');
+                    sizeCell.setAttribute('data-sort-value', file.size);
+                    sizeCell.textContent = formatSize(file.size);
+                    sizeCell.style.textAlign = 'right';
+                    row.appendChild(sizeCell);
+                    
+                    // Hash column (if enabled)
+                    if (showHash) {
+                        const hashCell = document.createElement('td');
+                        hashCell.className = 'hash';
+                        hashCell.setAttribute('data-sort-value', file.hash || '0');
+                        hashCell.textContent = file.hash || '-';
+                        row.appendChild(hashCell);
+                    }
+                    
+                    // Modified column
+                    const modCell = document.createElement('td');
+                    const modDate = new Date(file.modTime);
+                    modCell.setAttribute('data-sort-value', Math.floor(modDate.getTime() / 1000));
+                    modCell.textContent = formatDate(file.modTime);
+                    row.appendChild(modCell);
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                // Update footer
+                const footerRow = document.createElement('tr');
+                const fileText = data.fileCount !== 1 ? 's' : '';
+                const hashCell = showHash ? '<td></td>' : '';
+                footerRow.innerHTML = '<td><strong>Total: ' + data.fileCount + ' file' + fileText + '</strong></td>' +
+                    '<td><strong>' + formatSize(data.totalSize) + '</strong></td>' +
+                    hashCell +
+                    '<td></td>';
+                tableFooter.innerHTML = '';
+                tableFooter.appendChild(footerRow);
+            }
+            
+            // Sort table
+            function sortTable(columnIndex, sortType) {
+                const rows = Array.from(tableBody.querySelectorAll('tr'));
+                const isAsc = currentSort.column === columnIndex && currentSort.direction === 'asc';
+                const newDirection = isAsc ? 'desc' : 'asc';
+                
+                rows.sort((a, b) => {
+                    const aCell = a.cells[columnIndex];
+                    const bCell = b.cells[columnIndex];
+                    
+                    if (!aCell || !bCell) return 0;
+                    
+                    const aValue = aCell.getAttribute('data-sort-value') || '';
+                    const bValue = bCell.getAttribute('data-sort-value') || '';
+                    
+                    let comparison = 0;
+                    
+                    if (sortType === 'number') {
+                        const aNum = parseFloat(aValue) || 0;
+                        const bNum = parseFloat(bValue) || 0;
+                        comparison = aNum - bNum;
+                    } else {
+                        comparison = aValue.localeCompare(bValue, undefined, { 
+                            numeric: true, 
+                            sensitivity: 'base',
+                            caseFirst: 'false'
+                        });
+                    }
+                    
+                    return newDirection === 'asc' ? comparison : -comparison;
+                });
+                
+                rows.forEach(row => tableBody.removeChild(row));
+                rows.forEach(row => tableBody.appendChild(row));
+                
+                const headers = document.querySelectorAll('th.sortable');
+                headers.forEach((header, idx) => {
+                    header.classList.remove('sort-asc', 'sort-desc');
+                    if (idx === columnIndex) {
+                        header.classList.add('sort-' + newDirection);
+                    }
+                });
+                
+                currentSort = { column: columnIndex, direction: newDirection };
+            }
+            
+            // Add click handlers to headers
+            document.querySelectorAll('th.sortable').forEach((header, index) => {
+                header.addEventListener('click', () => {
+                    const sortType = header.getAttribute('data-sort-type');
+                    sortTable(index, sortType);
+                });
+            });
+            
+            // Handle browser back/forward buttons
+            window.addEventListener('popstate', function(e) {
+                const path = e.state && e.state.path ? e.state.path : getCurrentPath();
+                fetchFiles(path);
+            });
+            
+            // Initial load
+            fetchFiles(getCurrentPath());
+        })();
+    </script>
+</body>
+</html>
+    `))
+	
+	data := templateData{
+		ShowHash:    showHash,
+		ColorScheme: colorScheme,
+	}
+	if err := tmpl.Execute(cw, data); err != nil {
+		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		return
+	}
+	
+	totalBytesSentForListings += cw.bytesWritten
+}
+
+// renderFileList renders the HTML page listing all files (kept for backward compatibility if needed).
 func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colorScheme *colorScheme, basePaths []string) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
