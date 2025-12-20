@@ -166,6 +166,137 @@ Access files:
 - Visit `http://localhost:8080/` to see a file listing
 - Access files directly: `http://localhost:8080/filename.txt`
 
+## API Endpoint
+
+The server provides a JSON API endpoint for programmatic access to file listings. This is useful for scripts, tools, and automation.
+
+### `/api/files`
+
+Returns a JSON response with file listings, totals, and metadata.
+
+**Query Parameters:**
+- `path` (optional): Directory path to list. If not provided, lists all shared files/directories.
+
+**Response Format:**
+```json
+{
+  "files": [
+    {
+      "name": "/full/path/to/file.txt",
+      "displayName": "file.txt",
+      "size": 1024,
+      "modTime": "2024-01-01T12:00:00Z",
+      "hash": "abc123...",
+      "isDir": false
+    }
+  ],
+  "totalSize": 1048576,
+  "fileCount": 10,
+  "showHash": true
+}
+```
+
+**Response Fields:**
+- `files`: Array of file/directory objects
+  - `name`: Full absolute path (internal use)
+  - `displayName`: Relative path for display
+  - `size`: File size in bytes
+  - `modTime`: Modification time (ISO 8601 format)
+  - `hash`: SHA1 hash (empty if not calculated or disabled)
+  - `isDir`: Boolean indicating if this is a directory
+- `totalSize`: Total size of all files in bytes (directories excluded)
+- `fileCount`: Total number of files (directories excluded)
+- `showHash`: Boolean indicating if hash calculation is enabled
+
+### API Usage Examples
+
+**List all shared files (root):**
+```bash
+curl http://localhost:8080/api/files
+```
+
+**List files in a specific directory:**
+```bash
+curl "http://localhost:8080/api/files?path=subdirectory"
+```
+
+**Pretty-print JSON response:**
+```bash
+curl http://localhost:8080/api/files | jq
+```
+
+**List files and extract only file names:**
+```bash
+curl -s http://localhost:8080/api/files | jq -r '.files[] | select(.isDir == false) | .displayName'
+```
+
+**Get total size of all files:**
+```bash
+curl -s http://localhost:8080/api/files | jq '.totalSize'
+```
+
+**List files with their sizes (formatted):**
+```bash
+curl -s http://localhost:8080/api/files | jq -r '.files[] | "\(.displayName): \(.size) bytes"'
+```
+
+**Download a file using curl:**
+```bash
+curl -O http://localhost:8080/filename.txt
+```
+
+**Download with progress bar:**
+```bash
+curl -# -O http://localhost:8080/largefile.zip
+```
+
+**Resume a partial download:**
+```bash
+curl -C - -O http://localhost:8080/largefile.zip
+```
+
+**Check if a file exists (HEAD request):**
+```bash
+curl -I http://localhost:8080/filename.txt
+```
+
+**Get file metadata without downloading:**
+```bash
+curl -I http://localhost:8080/filename.txt
+```
+
+**List files in a nested directory:**
+```bash
+curl "http://localhost:8080/api/files?path=docs/subdir"
+```
+
+**Filter directories only:**
+```bash
+curl -s http://localhost:8080/api/files | jq '.files[] | select(.isDir == true) | .displayName'
+```
+
+**Get files with hashes (when --hash is enabled):**
+```bash
+curl -s http://localhost:8080/api/files | jq '.files[] | select(.hash != "") | {name: .displayName, hash: .hash}'
+```
+
+**Save API response to file:**
+```bash
+curl -s http://localhost:8080/api/files -o file_listing.json
+```
+
+**Use API in a script (bash example):**
+```bash
+#!/bin/bash
+API_URL="http://localhost:8080/api/files"
+FILES=$(curl -s "$API_URL" | jq -r '.files[] | select(.isDir == false) | .displayName')
+
+for file in $FILES; do
+    echo "Processing: $file"
+    # Your processing logic here
+done
+```
+
 When binding to `0.0.0.0`, the server will show output like:
 ```bash
 Serving on http://0.0.0.0:8080
