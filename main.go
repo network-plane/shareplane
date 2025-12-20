@@ -26,6 +26,7 @@ var (
 	bandwidthLimit string
 	colours        string
 	rateLimit      float64 = -1 // -1 means use default, 0 means disable, >0 means use this value
+	reload         bool
 )
 
 func main() {
@@ -98,7 +99,7 @@ func main() {
 			}
 			rateLimiterMutex.Unlock()
 
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme)
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload)
 		},
 	}
 
@@ -112,6 +113,7 @@ func main() {
 	rootCmd.Flags().Int64Var(&maxHashSize, "max-hash-size", 0, "Maximum file size (in bytes) to calculate hash for (0 = no limit, default: 0)")
 	rootCmd.Flags().StringVar(&bandwidthLimit, "bw-limit", "", "Bandwidth limit (e.g., 5MB, 250KB, 5M, 1.4G, or plain bytes). No limit if not specified.")
 	rootCmd.Flags().Float64Var(&rateLimit, "rate-limit", -1, "Rate limit: maximum requests per second per IP address (default: 20, use 0 to disable). Recommended: 10-30 for normal use, higher for automated tools.")
+	rootCmd.Flags().BoolVar(&reload, "reload", false, "Enable auto-reload: monitor files for changes in real-time using file system notifications (new files, removed files, modified files)")
 	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
 
 	if err := rootCmd.Execute(); err != nil {
@@ -249,6 +251,14 @@ func setupSignalHandling() {
 			globalRateLimiter.stop()
 		}
 		rateLimiterMutex.Unlock()
+		
+		// Cleanup file watcher
+		fileWatcherMutex.Lock()
+		if globalFileWatcher != nil {
+			globalFileWatcher.stop()
+		}
+		fileWatcherMutex.Unlock()
+		
 		printStats()
 		os.Exit(0)
 	}()

@@ -37,10 +37,11 @@ type rateLimitedWriter struct {
 
 // FileInfo is a struct to hold detailed information about files.
 type FileInfo struct {
-	Name    string
-	Size    int64
-	ModTime time.Time
-	Hash    string // SHA1 hash (empty if not calculated)
+	Name        string // Full absolute path (internal use only)
+	DisplayName string // Relative path for display (safe to show)
+	Size        int64
+	ModTime     time.Time
+	Hash        string // SHA1 hash (empty if not calculated)
 }
 
 // rateLimiter implements a token bucket rate limiter per IP address
@@ -63,4 +64,6 @@ type clientLimiter struct {
 var (
 	globalRateLimiter *rateLimiter
 	rateLimiterMutex  sync.Mutex
+	globalFileWatcher *fileWatcher
+	fileWatcherMutex  sync.Mutex
 )

@@ -69,8 +69,7 @@ func getRealIP(r *http.Request) string {
 	return ip
 }
 
-func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
-	path := r.URL.Path[1:] // Strip the leading slash
+func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, validatedPath string) {
 	clientIP := getRealIP(r)
 	isHEAD := r.Method == "HEAD"
 
@@ -87,12 +86,14 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	// Only wrap with countingWriter if not HEAD (HEAD requests don't send body, so no need to count)
 	var cw *countingWriter
 	if !isHEAD {
-		cw = &countingWriter{ResponseWriter: finalWriter, path: path, clientIP: clientIP}
+		// Use relative path for logging to avoid leaking full paths
+		relPath := getRelativePath(validatedPath, allowedPaths)
+		cw = &countingWriter{ResponseWriter: finalWriter, path: relPath, clientIP: clientIP}
 		finalWriter = cw
 	}
 
 	// Determine the file size
-	fileInfo, err := os.Stat(path)
+	fileInfo, err := os.Stat(validatedPath)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -105,7 +106,8 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 	// http.ServeFile automatically handles HTTP Range requests (206 Partial Content)
 	// and HEAD requests (returns headers only, no body)
 	// This enables resuming downloads, partial file fetches, and probing files without downloading
-	http.ServeFile(finalWriter, r, path)
+	// Use validatedPath to ensure we only serve allowed files
+	http.ServeFile(finalWriter, r, validatedPath)
 	
 	// Only track stats and check completion for non-HEAD requests
 	if !isHEAD && cw != nil {
@@ -114,19 +116,39 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 		// Check if the download was complete (only warn for non-Range requests)
 		// Range requests intentionally send fewer bytes, so don't warn for those
 		if !isRangeRequest && cw.bytesWritten < fileSize {
-			fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", path, cw.bytesWritten, fileSize)
+			relPath := getRelativePath(validatedPath, allowedPaths)
+			fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", relPath, cw.bytesWritten, fileSize)
 		}
 	}
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool) {
+	// Initialize allowed paths for security validation
+	if err := initAllowedPaths(filePaths); err != nil {
+		fmt.Printf("Error initializing allowed paths: %v\n", err)
+		os.Exit(1)
+	}
+	
 	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
-			// Check if the requested path is a directory
-			requestedPath := r.URL.Path[1:] // Strip the leading slash
-			fileInfo, err := os.Stat(requestedPath)
-			if err == nil && fileInfo.IsDir() {
+			// Strip the leading slash and validate path
+			requestedPath := r.URL.Path[1:]
+			
+			// SECURITY: Validate that the requested path is within allowed directories
+			validatedPath, allowed := isPathAllowed(requestedPath)
+			if !allowed {
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
+			}
+			
+			fileInfo, err := os.Stat(validatedPath)
+			if err != nil {
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
+			}
+			
+			if fileInfo.IsDir() {
 				// Handle HEAD requests for directories
 				if r.Method == "HEAD" {
 					// Return headers only for HEAD requests on directories
@@ -135,16 +157,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					return
 				}
 				// It's a directory, list its contents with styled HTML
-				filesInfo, err := listFilesInDir(requestedPath, showHidden, hash, maxHashSize)
+				filesInfo, err := listFilesInDir(validatedPath, showHidden, hash, maxHashSize)
 				if err != nil {
+					// Don't leak path information in errors
 					http.Error(w, "Failed to list directory", http.StatusInternalServerError)
 					return
 				}
-				renderFileList(w, filesInfo, hash, colorScheme)
+				renderFileList(w, filesInfo, hash, colorScheme, filePaths)
 				return
 			}
-			// It's a file, serve it normally
-			serveFile(w, r, bandwidthLimit)
+			// It's a file, serve it normally (validatedPath is already validated)
+			serveFile(w, r, bandwidthLimit, validatedPath)
 			return
 		}
 		// Root path, list all shared files/directories
@@ -159,8 +182,23 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
 		}
-		renderFileList(w, filesInfo, hash, colorScheme)
+		renderFileList(w, filesInfo, hash, colorScheme, filePaths)
 	}, getRealIP))
+
+	// Start file watcher if reload is enabled
+	if enableReload {
+		fileWatcherMutex.Lock()
+		watcher, err := newFileWatcher(filePaths, showHidden)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize file watcher: %v\n", err)
+			fmt.Println("Auto-reload will not be available.")
+		} else {
+			globalFileWatcher = watcher
+			globalFileWatcher.start()
+			fmt.Println("Auto-reload enabled: monitoring files for changes in real-time...")
+		}
+		fileWatcherMutex.Unlock()
+	}
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
 
@@ -224,16 +262,16 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 	
 	fileInfo, err := os.Stat(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("error: cannot access '%s': %w", dirPath, err)
+		return nil, fmt.Errorf("cannot access directory: %w", err)
 	}
 	
 	if !fileInfo.IsDir() {
-		return nil, fmt.Errorf("error: '%s' is not a directory", dirPath)
+		return nil, fmt.Errorf("path is not a directory")
 	}
 	
 	dirFiles, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("error: cannot read directory '%s': %w", dirPath, err)
+		return nil, fmt.Errorf("cannot read directory: %w", err)
 	}
 	
 	for _, f := range dirFiles {
@@ -244,7 +282,7 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 		
 		fileInfo, err := f.Info()
 		if err != nil {
-			return nil, fmt.Errorf("error: cannot get file info for '%s': %w", filepath.Join(dirPath, f.Name()), err)
+			return nil, fmt.Errorf("cannot get file info: %w", err)
 		}
 		
 		fullPath := filepath.Join(dirPath, f.Name())
@@ -262,10 +300,11 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 		}
 		
 		filesInfo = append(filesInfo, FileInfo{
-			Name:    fullPath,
-			Size:    fileSize,
-			ModTime: fileInfo.ModTime(),
-			Hash:    hashValue,
+			Name:        fullPath,
+			DisplayName: "", // Will be set in renderFileList
+			Size:        fileSize,
+			ModTime:     fileInfo.ModTime(),
+			Hash:        hashValue,
 		})
 	}
 	
@@ -278,20 +317,20 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 	for _, pattern := range paths {
 		expandedPaths, err := filepath.Glob(pattern)
 		if err != nil {
-			return nil, fmt.Errorf("error: invalid glob pattern '%s': %w", pattern, err)
+			return nil, fmt.Errorf("invalid glob pattern: %w", err)
 		}
 		if len(expandedPaths) == 0 {
-			return nil, fmt.Errorf("error: no files or directories found matching pattern '%s'", pattern)
+			return nil, fmt.Errorf("no files or directories found")
 		}
 		for _, path := range expandedPaths {
 			fileInfo, err := os.Stat(path)
 			if err != nil {
-				return nil, fmt.Errorf("error: cannot access '%s': %w", path, err)
+				return nil, fmt.Errorf("cannot access path: %w", err)
 			}
 			if fileInfo.IsDir() {
 				dirFiles, err := os.ReadDir(path)
 				if err != nil {
-					return nil, fmt.Errorf("error: cannot read directory '%s': %w", path, err)
+					return nil, fmt.Errorf("cannot read directory: %w", err)
 				}
 				for _, f := range dirFiles {
 					// Skip hidden files unless showHidden flag is set
@@ -300,7 +339,7 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 					}
 					fileInfo, err := f.Info() // Get the FileInfo for the directory entry
 					if err != nil {
-						return nil, fmt.Errorf("error: cannot get file info for '%s': %w", filepath.Join(path, f.Name()), err)
+						return nil, fmt.Errorf("cannot get file info: %w", err)
 					}
 					fullPath := filepath.Join(path, f.Name())
 					fileSize := fileInfo.Size()
@@ -343,10 +382,11 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 				}
 
 				filesInfo = append(filesInfo, FileInfo{
-					Name:    path,
-					Size:    fileSize,
-					ModTime: fileInfo.ModTime(),
-					Hash:    hashValue,
+					Name:        path,
+					DisplayName: "", // Will be set in renderFileList
+					Size:        fileSize,
+					ModTime:     fileInfo.ModTime(),
+					Hash:        hashValue,
 				})
 			}
 		}
@@ -376,7 +416,7 @@ type templateData struct {
 }
 
 // renderFileList renders the HTML page listing all files.
-func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colorScheme *colorScheme) {
+func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colorScheme *colorScheme, basePaths []string) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -448,7 +488,7 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
         <tbody>
         {{range .Files}}
             <tr>
-                <td><a href="/{{.Name}}">{{.Name}}</a></td>
+                <td><a href="/{{.DisplayName}}">{{.DisplayName}}</a></td>
                 <td>{{formatSize .Size}}</td>
                 {{if $.ShowHash}}<td class="hash">{{if .Hash}}{{.Hash}}{{else}}-{{end}}</td>{{end}}
                 <td>{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
@@ -459,8 +499,19 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
 </body>
 </html>
     `))
+	// Convert files to use relative paths for display
+	displayFiles := make([]FileInfo, len(files))
+	for i, f := range files {
+		displayFiles[i] = f
+		// Use relative path for display, but keep full path for internal use
+		// If DisplayName is already set, use it; otherwise compute from Name
+		if displayFiles[i].DisplayName == "" {
+			displayFiles[i].DisplayName = getRelativePath(f.Name, basePaths)
+		}
+	}
+	
 	data := templateData{
-		Files:       files,
+		Files:       displayFiles,
 		ShowHash:    showHash,
 		ColorScheme: colorScheme,
 	}
