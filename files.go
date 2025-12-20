@@ -413,6 +413,8 @@ type templateData struct {
 	Files       []FileInfo
 	ShowHash    bool
 	ColorScheme *colorScheme
+	TotalSize   int64
+	FileCount   int
 }
 
 // renderFileList renders the HTML page listing all files.
@@ -491,6 +493,18 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
         a:hover {
             text-decoration: underline;
         }
+        tfoot {
+            border-top: 2px solid #ddd;
+        }
+        tfoot td {
+            font-weight: bold;
+            padding: 12px;
+            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #f9f9f9;{{end}}
+            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: #333;{{end}}
+        }
+        tfoot td:nth-child(2) {
+            text-align: right;
+        }
     </style>
 </head>
 <body>
@@ -514,6 +528,14 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
             </tr>
         {{end}}
         </tbody>
+        <tfoot>
+            <tr>
+                <td><strong>Total: {{.FileCount}} file{{if ne .FileCount 1}}s{{end}}</strong></td>
+                <td><strong>{{formatSize .TotalSize}}</strong></td>
+                {{if .ShowHash}}<td></td>{{end}}
+                <td></td>
+            </tr>
+        </tfoot>
     </table>
     <script>
         (function() {
@@ -593,10 +615,23 @@ func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colo
 		}
 	}
 	
+	// Calculate totals (only count files, not directories)
+	var totalSize int64
+	var fileCount int
+	for _, f := range displayFiles {
+		fileInfo, err := os.Stat(f.Name)
+		if err == nil && !fileInfo.IsDir() {
+			totalSize += f.Size
+			fileCount++
+		}
+	}
+	
 	data := templateData{
 		Files:       displayFiles,
 		ShowHash:    showHash,
 		ColorScheme: colorScheme,
+		TotalSize:   totalSize,
+		FileCount:   fileCount,
 	}
 	if err := tmpl.Execute(cw, data); err != nil {
 		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
