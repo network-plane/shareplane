@@ -5,8 +5,7 @@
 - [x] allow clients to probe using head without downloading anything else [#13]
 - [ ] add a --URL flag that will be used instead of the local ip/domain when we serve files, this will be used for files behind a proxy, it can accept an IP, IP:PORT, domain, domain:port [#2]
 - [ ] add an --idle flag, by default the server will close if the flag is used in 15m, otherwise this accepts time in minutes otherwise units like 10M, 4H, 4D, 1W, 1M [#3]
-
-- [ ] sort on header label click [#5]
+- [x] sort on header label click [#5]
 - [ ] total size on all files in the bottom of the table including file count [#6]
 - [ ] /api/ endpoint where we only return proper json for use in scripts/tools, example /api/files will print out the output but in a json [#7]
 - [ ] In the bottom before the footer show links to all the supported endpoints [#8]
