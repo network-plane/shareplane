@@ -121,7 +121,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64) {
 
 // serveFiles sets up the HTTP server and handlers.
 func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme) {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			// Check if the requested path is a directory
 			requestedPath := r.URL.Path[1:] // Strip the leading slash
@@ -160,7 +160,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			return
 		}
 		renderFileList(w, filesInfo, hash, colorScheme)
-	})
+	}, getRealIP))
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
 
