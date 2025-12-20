@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] `--limit` flag needs to be `--bw-limit` [#1]
+- [x] `--limit` flag needs to be `--bw-limit` [#1]
 - [ ] add a --URL flag that will be used instead of the local ip/domain when we serve files, this will be used for files behind a proxy, it can accept an IP, IP:PORT, domain, domain:port [#2]
 - [ ] add an --idle flag, by default the server will close if the flag is used in 15m, otherwise this accepts time in minutes otherwise units like 10M, 4H, 4D, 1W, 1M [#3]
 - [ ] add flag --reload, which checks all the passed dirs/files for changes if new files are added/removed or files changed we update the output [#4]
