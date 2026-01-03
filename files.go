@@ -570,7 +570,7 @@ type templateData struct {
 }
 
 // globalAppVersion stores the application version (set by main.go)
-var globalAppVersion = "1.1.73"
+var globalAppVersion = "1.1.75"
 
 // setAppVersion sets the application version (called from main.go)
 func setAppVersion(version string) {
