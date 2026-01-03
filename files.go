@@ -226,7 +226,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				// Single file
 				filesInfo = []FileInfo{{
 					Name:        validatedPath,
-					DisplayName: getRelativePath(validatedPath, filePaths),
+					DisplayName: getRelativePath(validatedPath, allowedPaths),
 					Size:        fileInfo.Size(),
 					ModTime:     fileInfo.ModTime(),
 					IsDir:       false,
@@ -247,7 +247,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		for i, f := range filesInfo {
 			displayFiles[i] = f
 			if displayFiles[i].DisplayName == "" {
-				displayFiles[i].DisplayName = getRelativePath(f.Name, filePaths)
+				displayFiles[i].DisplayName = getRelativePath(f.Name, allowedPaths)
 			}
 			
 			// Check if it's a directory
