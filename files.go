@@ -178,8 +178,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 					if server != nil {
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-						defer cancel()
-						server.Shutdown(ctx)
+						if err := server.Shutdown(ctx); err != nil {
+							fmt.Printf("[Idle Timeout] Error shutting down server: %v\n", err)
+						}
+						cancel()
 					}
 					
 					printStats()
