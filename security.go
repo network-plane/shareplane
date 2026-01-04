@@ -130,33 +130,3 @@ func getRelativePath(fullPath string, basePaths []string) string {
 	return shortest
 }
 
-// sanitizeError removes sensitive path information from error messages
-func sanitizeError(err error) string {
-	if err == nil {
-		return "operation failed"
-	}
-	
-	errStr := err.Error()
-	
-	// Remove absolute paths from error messages
-	// Replace with generic messages
-	if strings.Contains(errStr, "cannot access") {
-		return "access denied"
-	}
-	if strings.Contains(errStr, "cannot read") {
-		return "read failed"
-	}
-	if strings.Contains(errStr, "cannot get file info") {
-		return "file information unavailable"
-	}
-	if strings.Contains(errStr, "not a directory") {
-		return "invalid path"
-	}
-	if strings.Contains(errStr, "no such file") || strings.Contains(errStr, "does not exist") {
-		return "file not found"
-	}
-	
-	// Generic fallback - remove any paths
-	return "operation failed"
-}
-
