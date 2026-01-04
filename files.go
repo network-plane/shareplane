@@ -213,7 +213,8 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				return
 			}
 			
-			fileInfo, err := os.Stat(validatedPath)
+			var fileInfo os.FileInfo
+			fileInfo, err = os.Stat(validatedPath)
 			if err != nil {
 				http.Error(w, "Path not found", http.StatusNotFound)
 				return
@@ -230,6 +231,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					ModTime:     fileInfo.ModTime(),
 					IsDir:       false,
 				}}
+				err = nil
 			}
 		}
 		
@@ -451,7 +453,7 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 		
 		filesInfo = append(filesInfo, FileInfo{
 			Name:        fullPath,
-			DisplayName: "", // Will be set in renderFileList
+			DisplayName: "", // Will be set in API handler
 			Size:        fileSize,
 			ModTime:     fileInfo.ModTime(),
 			Hash:        hashValue,
@@ -533,7 +535,7 @@ func listFiles(paths []string, showHidden bool, hash bool, maxHashSize int64) ([
 
 				filesInfo = append(filesInfo, FileInfo{
 					Name:        path,
-					DisplayName: "", // Will be set in renderFileList
+					DisplayName: "", // Will be set in API handler
 					Size:        fileSize,
 					ModTime:     fileInfo.ModTime(),
 					Hash:        hashValue,
@@ -928,230 +930,5 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 		return
 	}
 	
-	totalBytesSentForListings += cw.bytesWritten
-}
-
-// renderFileList renders the HTML page listing all files (kept for backward compatibility if needed).
-func renderFileList(w http.ResponseWriter, files []FileInfo, showHash bool, colorScheme *colorScheme, basePaths []string) {
-	cw := &countingWriter{ResponseWriter: w}
-	tmpl := template.Must(template.New("index").Funcs(template.FuncMap{
-		"formatSize": formatSize,
-	}).Parse(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>File Listing</title>
-    <style>
-        body {
-            font-family: monospace;
-            margin: 20px;
-            {{if .ColorScheme}}background-color: {{.ColorScheme.Background}};{{else}}background-color: #f5f5f5;{{end}}
-        }
-        h1 {
-            {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: #333;{{end}}
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            {{if .ColorScheme}}background-color: {{.ColorScheme.TableBg}};{{else}}background-color: white;{{end}}
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        th {
-            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #4CAF50;{{end}}
-            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: white;{{end}}
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-            cursor: pointer;
-            user-select: none;
-            position: relative;
-        }
-        th:hover {
-            opacity: 0.9;
-        }
-        th.sortable::after {
-            content: ' ↕';
-            opacity: 0.5;
-            font-size: 0.8em;
-        }
-        th.sort-asc::after {
-            content: ' ↑';
-            opacity: 1;
-        }
-        th.sort-desc::after {
-            content: ' ↓';
-            opacity: 1;
-        }
-        th:nth-child(2) {
-            text-align: right;
-        }
-        td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #ddd;
-            {{if .ColorScheme}}color: {{.ColorScheme.TableOtherText}};{{end}}
-        }
-        td:nth-child(2) {
-            text-align: right;
-        }
-        .hash {
-            font-family: monospace;
-            font-size: 0.9em;
-        }
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        a {
-            {{if .ColorScheme}}color: {{.ColorScheme.TableFilenameText}};{{else}}color: #2196F3;{{end}}
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        tfoot {
-            border-top: 2px solid #ddd;
-        }
-        tfoot td {
-            font-weight: bold;
-            padding: 12px;
-            {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: #f9f9f9;{{end}}
-            {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: #333;{{end}}
-        }
-        tfoot td:nth-child(2) {
-            text-align: right;
-        }
-    </style>
-</head>
-<body>
-    <h1>Files</h1>
-    <table>
-        <thead>
-            <tr>
-                <th class="sortable" data-sort="name" data-sort-type="string">Name</th>
-                <th class="sortable" data-sort="size" data-sort-type="number">Size</th>
-                {{if .ShowHash}}<th class="sortable" data-sort="hash" data-sort-type="string">SHA1</th>{{end}}
-                <th class="sortable" data-sort="modified" data-sort-type="number">Modified</th>
-            </tr>
-        </thead>
-        <tbody id="fileTableBody">
-        {{range .Files}}
-            <tr>
-                <td data-sort-value="{{.DisplayName}}"><a href="/{{.DisplayName}}">{{.DisplayName}}</a></td>
-                <td data-sort-value="{{.Size}}">{{formatSize .Size}}</td>
-                {{if $.ShowHash}}<td class="hash" data-sort-value="{{if .Hash}}{{.Hash}}{{else}}0{{end}}">{{if .Hash}}{{.Hash}}{{else}}-{{end}}</td>{{end}}
-                <td data-sort-value="{{.ModTime.Unix}}">{{.ModTime.Format "2006-01-02 15:04:05"}}</td>
-            </tr>
-        {{end}}
-        </tbody>
-        <tfoot>
-            <tr>
-                <td><strong>Total: {{.FileCount}} file{{if ne .FileCount 1}}s{{end}}</strong></td>
-                <td><strong>{{formatSize .TotalSize}}</strong></td>
-                {{if .ShowHash}}<td></td>{{end}}
-                <td></td>
-            </tr>
-        </tfoot>
-    </table>
-    <script>
-        (function() {
-            const tableBody = document.getElementById('fileTableBody');
-            const headers = document.querySelectorAll('th.sortable');
-            let currentSort = { column: null, direction: 'asc' };
-            
-            function sortTable(columnIndex, sortType) {
-                const rows = Array.from(tableBody.querySelectorAll('tr'));
-                const isAsc = currentSort.column === columnIndex && currentSort.direction === 'asc';
-                const newDirection = isAsc ? 'desc' : 'asc';
-                
-                rows.sort((a, b) => {
-                    const aCell = a.cells[columnIndex];
-                    const bCell = b.cells[columnIndex];
-                    
-                    if (!aCell || !bCell) return 0;
-                    
-                    const aValue = aCell.getAttribute('data-sort-value') || '';
-                    const bValue = bCell.getAttribute('data-sort-value') || '';
-                    
-                    let comparison = 0;
-                    
-                    if (sortType === 'number') {
-                        const aNum = parseFloat(aValue) || 0;
-                        const bNum = parseFloat(bValue) || 0;
-                        comparison = aNum - bNum;
-                    } else {
-                        // String comparison (case-insensitive, natural sort)
-                        comparison = aValue.localeCompare(bValue, undefined, { 
-                            numeric: true, 
-                            sensitivity: 'base',
-                            caseFirst: 'false'
-                        });
-                    }
-                    
-                    return newDirection === 'asc' ? comparison : -comparison;
-                });
-                
-                // Remove all rows
-                rows.forEach(row => tableBody.removeChild(row));
-                
-                // Add sorted rows back in new order
-                rows.forEach(row => tableBody.appendChild(row));
-                
-                // Update header classes to show sort direction
-                headers.forEach((header, idx) => {
-                    header.classList.remove('sort-asc', 'sort-desc');
-                    if (idx === columnIndex) {
-                        header.classList.add('sort-' + newDirection);
-                    }
-                });
-                
-                currentSort = { column: columnIndex, direction: newDirection };
-            }
-            
-            // Add click handlers to all sortable headers
-            headers.forEach((header, index) => {
-                header.addEventListener('click', () => {
-                    const sortType = header.getAttribute('data-sort-type');
-                    sortTable(index, sortType);
-                });
-            });
-        })();
-    </script>
-</body>
-</html>
-    `))
-	// Convert files to use relative paths for display
-	displayFiles := make([]FileInfo, len(files))
-	for i, f := range files {
-		displayFiles[i] = f
-		// Use relative path for display, but keep full path for internal use
-		// If DisplayName is already set, use it; otherwise compute from Name
-		if displayFiles[i].DisplayName == "" {
-			displayFiles[i].DisplayName = getRelativePath(f.Name, basePaths)
-		}
-	}
-	
-	// Calculate totals (only count files, not directories)
-	var totalSize int64
-	var fileCount int
-	for _, f := range displayFiles {
-		fileInfo, err := os.Stat(f.Name)
-		if err == nil && !fileInfo.IsDir() {
-			totalSize += f.Size
-			fileCount++
-		}
-	}
-	
-	data := templateData{
-		Files:       displayFiles,
-		ShowHash:    showHash,
-		ColorScheme: colorScheme,
-		TotalSize:   totalSize,
-		FileCount:   fileCount,
-	}
-	if err := tmpl.Execute(cw, data); err != nil {
-		http.Error(w, "Failed to render file list", http.StatusInternalServerError)
-		return
-	}
-
-	// Update bytes sent for listings
 	totalBytesSentForListings += cw.bytesWritten
 }
