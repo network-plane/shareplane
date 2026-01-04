@@ -149,44 +149,41 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
 			
-			for {
-				select {
-				case <-ticker.C:
-					lastActivityMu.RLock()
-					last := lastActivity
-					lastActivityMu.RUnlock()
+			for range ticker.C {
+				lastActivityMu.RLock()
+				last := lastActivity
+				lastActivityMu.RUnlock()
+
+				if time.Since(last) >= idleTimeout {
+					fmt.Printf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
 					
-					if time.Since(last) >= idleTimeout {
-						fmt.Printf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
-						
-						// Cleanup rate limiter
-						rateLimiterMutex.Lock()
-						if globalRateLimiter != nil {
-							globalRateLimiter.stop()
-						}
-						rateLimiterMutex.Unlock()
-						
-						// Cleanup file watcher
-						fileWatcherMutex.Lock()
-						if globalFileWatcher != nil {
-							globalFileWatcher.stop()
-						}
-						fileWatcherMutex.Unlock()
-						
-						// Shutdown HTTP server gracefully
-						httpServerMu.RLock()
-						server := httpServer
-						httpServerMu.RUnlock()
-						
-						if server != nil {
-							ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-							defer cancel()
-							server.Shutdown(ctx)
-						}
-						
-						printStats()
-						os.Exit(0)
+					// Cleanup rate limiter
+					rateLimiterMutex.Lock()
+					if globalRateLimiter != nil {
+						globalRateLimiter.stop()
 					}
+					rateLimiterMutex.Unlock()
+
+					// Cleanup file watcher
+					fileWatcherMutex.Lock()
+					if globalFileWatcher != nil {
+						globalFileWatcher.stop()
+					}
+					fileWatcherMutex.Unlock()
+
+					// Shutdown HTTP server gracefully
+					httpServerMu.RLock()
+					server := httpServer
+					httpServerMu.RUnlock()
+
+					if server != nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						server.Shutdown(ctx)
+					}
+					
+					printStats()
+					os.Exit(0)
 				}
 			}
 		}()
