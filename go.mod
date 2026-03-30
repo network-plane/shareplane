@@ -1,9 +1,10 @@
 module shareplane
 
-go 1.22.0
+go 1.26.1
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/pires/go-proxyproto v0.11.0
 	github.com/spf13/cobra v1.8.0
 )
 
