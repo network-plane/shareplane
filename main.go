@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,7 +20,7 @@ const (
 )
 
 var (
-	appVersion     = "1.2.8"
+	appVersion     = "1.3.0"
 	port           string
 	ip             string
 	showHidden     bool
@@ -51,6 +52,7 @@ var (
 	tlsCertFile    string
 	tlsKeyFile     string
 	enableTUI      bool
+	uploadDir      string
 )
 
 func main() {
@@ -160,6 +162,15 @@ func main() {
 			serverCfg.TLSCertFile = tlsCertFile
 			serverCfg.TLSKeyFile = tlsKeyFile
 			serverCfg.EnableTUI = enableTUI
+			serverCfg.UploadDir = ""
+			if uploadDir != "" {
+				abs, err := filepath.Abs(uploadDir)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid --upload path: %v\n", err)
+					os.Exit(1)
+				}
+				serverCfg.UploadDir = abs
+			}
 
 			if (tlsCertFile != "") != (tlsKeyFile != "") {
 				fmt.Fprintf(os.Stderr, "Error: --cert and --key must be set together\n")
@@ -236,6 +247,7 @@ func main() {
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert", "", "Path to TLS certificate (PEM); use with --key (takes precedence over --https)")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key", "", "Path to TLS private key (PEM); use with --cert")
 	rootCmd.Flags().BoolVar(&enableTUI, "tui", false, "Show live /api/status in the terminal (server runs in background; use --log to capture server output to a file)")
+	rootCmd.Flags().StringVar(&uploadDir, "upload", "", "Directory to receive uploads (POST /api/upload); created if missing; shown in listings when not already shared")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",

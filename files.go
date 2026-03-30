@@ -296,6 +296,25 @@ func updateLastActivity() {
 	lastActivityMu.Unlock()
 }
 
+// effectiveListRoots includes --upload dir in listings when it is not already shared.
+func effectiveListRoots(filePaths []string) []string {
+	out := append([]string{}, filePaths...)
+	if serverCfg.UploadDir == "" {
+		return out
+	}
+	u := filepath.Clean(serverCfg.UploadDir)
+	for _, p := range out {
+		ap, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		if filepath.Clean(ap) == u {
+			return out
+		}
+	}
+	return append(out, serverCfg.UploadDir)
+}
+
 // serveFiles sets up the HTTP server and handlers.
 func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string, namePrefix string, nameSuffix string) {
 	serverPublicBaseURL = publicBaseURL
@@ -306,6 +325,14 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		outPrintf("Error initializing allowed paths: %v\n", err)
 		os.Exit(1)
 	}
+	if serverCfg.UploadDir != "" {
+		if err := registerUploadDir(serverCfg.UploadDir); err != nil {
+			outPrintf("Error: upload directory: %v\n", err)
+			os.Exit(1)
+		}
+		outPrintf("Upload target: %s (POST /api/upload)\n", serverCfg.UploadDir)
+	}
+	listRoots := effectiveListRoots(filePaths)
 
 	// Set up idle timeout tracking
 	if idleTimeout > 0 {
@@ -374,8 +401,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 	http.HandleFunc("/manifest.json", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
-		handleManifestJSON(w, r, filePaths, showHidden, hash, maxHashSize)
+		handleManifestJSON(w, r, listRoots, showHidden, hash, maxHashSize)
 	}))
+
+	if serverCfg.UploadDir != "" {
+		http.HandleFunc("/api/upload", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+			updateLastActivity()
+			handleUpload(w, r)
+			ip := getRealIP(r)
+			recordActivity(ip, "upload", "POST /api/upload")
+		}))
+	}
 
 	http.HandleFunc("/api/one-time-token", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
@@ -435,7 +471,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 		if requestedPath == "" {
 			// Root path - list all shared files/directories
-			filesInfo, err = listFiles(filePaths, showHidden, hash, maxHashSize)
+			filesInfo, err = listFiles(listRoots, showHidden, hash, maxHashSize)
 		} else {
 			// Validate path
 			validatedPath, allowed := isPathAllowed(requestedPath)
@@ -744,7 +780,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				if r.Method == http.MethodGet {
 					recordActivity(getRealIP(r), "browse", "path=/"+filepath.ToSlash(requestedPath))
 				}
-				renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream)
+				renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream, serverCfg.UploadDir != "")
 				return
 			}
 			// It's a file, serve it normally (validatedPath is already validated)
@@ -763,13 +799,13 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		if r.Method == http.MethodGet {
 			recordActivity(getRealIP(r), "browse", "path=/")
 		}
-		renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream)
+		renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream, serverCfg.UploadDir != "")
 	}))
 
 	// Start file watcher if reload is enabled
 	if enableReload {
 		fileWatcherMutex.Lock()
-		watcher, err := newFileWatcher(filePaths, showHidden)
+		watcher, err := newFileWatcher(listRoots, showHidden)
 		if err != nil {
 			outPrintf("Warning: Failed to initialize file watcher: %v\n", err)
 			outPrintln("Auto-reload will not be available.")
@@ -1181,6 +1217,7 @@ type templateData struct {
 	ShowQR          bool
 	SingleStream    bool
 	StatsPage       bool
+	UploadEnabled   bool
 	WebDAVEnabled   bool
 	ColorScheme     *colorScheme
 	UseDefaultTheme bool
@@ -1243,7 +1280,7 @@ func handleManifestJSON(w http.ResponseWriter, r *http.Request, filePaths []stri
 }
 
 // renderClientApp renders the client-side HTML application that fetches data from the API
-func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string, showQR bool, singleStream bool) {
+func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string, showQR bool, singleStream bool, uploadEnabled bool) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("clientApp").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -1444,6 +1481,14 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
     <div style="margin-bottom: 14px;">
         <input id="searchInput" type="search" autocomplete="off" placeholder="Search in this folder…" style="width: 100%; max-width: 42rem; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--table-bg); color: var(--text); font-family: monospace;">
     </div>
+    {{if .UploadEnabled}}
+    <div style="margin-bottom: 14px; max-width: 42rem;">
+        <div style="margin-bottom: 6px; color: var(--muted); font-size: 0.9em;">Upload files into the shared area (optional <code>subdir</code> = current folder path)</div>
+        <input type="file" id="uploadInput" multiple style="max-width: 100%; font-family: monospace; color: var(--text);" />
+        <button type="button" id="uploadBtn" class="theme-toggle" style="margin-top: 8px;">Upload</button>
+        <div id="uploadProgress" style="margin-top: 8px; font-size: 0.85em; color: var(--muted);"></div>
+    </div>
+    {{end}}
     <div id="loading" class="loading">Loading...</div>
     <div id="error" class="error" style="display: none;"></div>
     <table id="fileTable" style="display: none;">
@@ -1483,6 +1528,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             const publicBase = {{if .PublicBaseURL}}{{printf "%q" .PublicBaseURL}}{{else}}""{{end}};
             const showQR = {{if .ShowQR}}true{{else}}false{{end}};
             const singleStream = {{if .SingleStream}}true{{else}}false{{end}};
+            const uploadEnabled = {{if .UploadEnabled}}true{{else}}false{{end}};
             let activeSearchQuery = '';
             let searchDebounceTimer = null;
             let pendingSearchAbort = null;
@@ -2160,6 +2206,65 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 }
             });
 
+            function wireUploadUI() {
+                if (!uploadEnabled) return;
+                const input = document.getElementById('uploadInput');
+                const btn = document.getElementById('uploadBtn');
+                const prog = document.getElementById('uploadProgress');
+                if (!input || !btn || !prog) return;
+                btn.addEventListener('click', function() {
+                    const files = input.files;
+                    if (!files || files.length === 0) {
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = 'Choose one or more files first.';
+                        return;
+                    }
+                    errorDiv.style.display = 'none';
+                    const fd = new FormData();
+                    for (let i = 0; i < files.length; i++) {
+                        fd.append('files', files[i], files[i].name);
+                    }
+                    const path = getCurrentPath();
+                    let url = '/api/upload';
+                    if (path) {
+                        url += '?subdir=' + encodeURIComponent(path);
+                    }
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', url);
+                    xhr.upload.onprogress = function(e) {
+                        if (e.lengthComputable) {
+                            prog.textContent = 'Uploading… ' + Math.round(100 * e.loaded / e.total) + '%';
+                        } else {
+                            prog.textContent = 'Uploading…';
+                        }
+                    };
+                    xhr.onload = function() {
+                        prog.textContent = '';
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                const j = JSON.parse(xhr.responseText);
+                                errorDiv.style.display = 'block';
+                                errorDiv.textContent = 'Uploaded: ' + (j.saved || []).join(', ');
+                            } catch (e) {
+                                errorDiv.style.display = 'block';
+                                errorDiv.textContent = 'Upload complete.';
+                            }
+                            fetchFiles(getCurrentPath());
+                        } else {
+                            errorDiv.style.display = 'block';
+                            errorDiv.textContent = 'Upload failed: ' + xhr.status + ' ' + (xhr.responseText || '');
+                        }
+                    };
+                    xhr.onerror = function() {
+                        prog.textContent = '';
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = 'Upload network error.';
+                    };
+                    xhr.send(fd);
+                });
+            }
+            wireUploadUI();
+
             fetchFiles(getCurrentPath());
         })();
     </script>
@@ -2175,6 +2280,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             {{if .StatsPage}}<li><a href="/stats">/stats</a> — same JSON as <code>/api/status</code> (<code>Cache-Control: no-store</code>)</li>{{end}}
             <li><a href="/api/one-time-token">/api/one-time-token</a> — JSON one-time token (append <code>?token=</code> to a file URL; consumed on first successful GET)</li>
             {{if .SingleStream}}<li><code>GET /archive</code> — stream archive: <code>format=zstd</code> or <code>tar.gz</code>, repeat <code>paths=</code> for each file</li>{{end}}
+            {{if .UploadEnabled}}<li><code>POST /api/upload</code> — multipart field <code>files</code>; optional <code>subdir=</code> under the upload root</li>{{end}}
             <li><a href="/api/events">/api/events</a> — JSON event log; <a href="/events">/events</a> — SSE stream</li>
             <li><a href="/manifest.json">/manifest.json</a> — shared files metadata (JSON)</li>
             {{if .WebDAVEnabled}}<li><code>WebDAV</code> — <code>/webdav/</code> (same auth as HTTP)</li>{{end}}
@@ -2205,6 +2311,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 		ShowQR:          showQR,
 		SingleStream:    singleStream,
 		StatsPage:       serverCfg.EnableStatsPage,
+		UploadEnabled:   uploadEnabled,
 		WebDAVEnabled:   serverCfg.EnableWebDAV,
 		ColorScheme:     colorScheme,
 		UseDefaultTheme: colorScheme == nil,

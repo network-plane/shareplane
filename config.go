@@ -24,6 +24,7 @@ var serverCfg struct {
 	TLSCertFile        string
 	TLSKeyFile         string
 	EnableTUI          bool
+	UploadDir          string // absolute; empty disables POST /api/upload
 }
 
 // globalBytesTransferred counts bytes sent for completed file responses (finish()).

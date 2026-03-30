@@ -60,6 +60,25 @@ func initAllowedPaths(filePaths []string) error {
 	return nil
 }
 
+// registerUploadDir adds an absolute directory so uploaded files are readable like other shares.
+func registerUploadDir(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	abs = filepath.Clean(abs)
+	if err := os.MkdirAll(abs, 0755); err != nil {
+		return err
+	}
+	for _, e := range allowedPaths {
+		if filepath.Clean(e) == abs {
+			return nil
+		}
+	}
+	allowedPaths = append(allowedPaths, abs)
+	return nil
+}
+
 // isPathAllowed checks if a requested path is within the allowed directories
 // Returns the cleaned absolute path and true if allowed, or empty string and false if not
 func isPathAllowed(requestedPath string) (string, bool) {
