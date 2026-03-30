@@ -20,6 +20,7 @@ var serverCfg struct {
 	EncryptPassword    string
 	EnableSingleStream bool
 	EnableStatsPage    bool
+	EphemeralTLS       bool // --https: in-memory self-signed cert (not persisted)
 }
 
 // globalBytesTransferred counts bytes sent for completed file responses (finish()).

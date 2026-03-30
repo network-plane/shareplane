@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -782,9 +783,24 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
 
+	var tlsCfg *tls.Config
+	if serverCfg.EphemeralTLS {
+		var err error
+		tlsCfg, err = ephemeralTLSConfig()
+		if err != nil {
+			outPrintf("TLS: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	scheme := "http"
+	if tlsCfg != nil {
+		scheme = "https"
+	}
+
 	// If listening on 0.0.0.0, show all available IP addresses
 	if ip == "0.0.0.0" {
-		outPrintf("Serving on http://%s\n", listenAddress)
+		outPrintf("Serving on %s://%s\n", scheme, listenAddress)
 		outPrintln("Available on:")
 		interfaces, err := net.Interfaces()
 		if err == nil {
@@ -796,17 +812,20 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				for _, addr := range addrs {
 					if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
 						if ipNet.IP.To4() != nil {
-							outPrintf("  http://%s:%s\n", ipNet.IP.String(), port)
+							outPrintf("  %s://%s:%s\n", scheme, ipNet.IP.String(), port)
 						}
 					}
 				}
 			}
 		}
 		// Also show localhost
-		outPrintf("  http://127.0.0.1:%s\n", port)
-		outPrintf("  http://localhost:%s\n", port)
+		outPrintf("  %s://127.0.0.1:%s\n", scheme, port)
+		outPrintf("  %s://localhost:%s\n", scheme, port)
 	} else {
-		outPrintf("Serving on http://%s\n", listenAddress)
+		outPrintf("Serving on %s://%s\n", scheme, listenAddress)
+	}
+	if tlsCfg != nil {
+		outPrintln("Using ephemeral TLS certificate (self-signed, not saved). Expect browser warnings.")
 	}
 
 	// Create HTTP server for graceful shutdown support
@@ -857,19 +876,24 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		}
 	}
 
-	// Start server with optional PROXY protocol parsing.
-	// This allows real client IPs behind FRP TCP proxies (proxyProtocolVersion=v2)
-	// while remaining compatible with direct/HTTP proxy traffic without PROXY headers.
+	// Start server: optional TLS, else PROXY protocol parsing on plain TCP.
 	baseListener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
-	proxyListener := &proxyproto.Listener{
-		Listener:          baseListener,
-		ReadHeaderTimeout: 5 * time.Second,
+
+	var outer net.Listener = baseListener
+	if tlsCfg != nil {
+		outer = tls.NewListener(baseListener, tlsCfg)
+		outPrintln("Note: PROXY protocol is not enabled together with TLS on this listener.")
+	} else {
+		outer = &proxyproto.Listener{
+			Listener:          baseListener,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
 	}
 
-	if err := server.Serve(proxyListener); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(outer); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

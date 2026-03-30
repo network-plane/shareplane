@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.2.5"
+	appVersion     = "1.2.6"
 	port           string
 	ip             string
 	showHidden     bool
@@ -47,6 +47,7 @@ var (
 	logFilePath    string
 	singleStream   bool
 	statsPage      bool
+	useHTTPS       bool
 )
 
 func main() {
@@ -152,6 +153,7 @@ func main() {
 			serverCfg.EncryptPassword = encryptPass
 			serverCfg.EnableSingleStream = singleStream
 			serverCfg.EnableStatsPage = statsPage
+			serverCfg.EphemeralTLS = useHTTPS
 
 			if err := initServerLog(logFilePath); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: cannot open log file: %v\n", err)
@@ -216,6 +218,7 @@ func main() {
 	rootCmd.Flags().StringVar(&logFilePath, "log", "", "Append server output to this file as well as stdout")
 	rootCmd.Flags().BoolVar(&singleStream, "single-stream", false, "Enable GET /archive (zstd or tar.gz) and listing checkboxes for multi-file download")
 	rootCmd.Flags().BoolVar(&statsPage, "stats", false, "Expose GET /stats with the same JSON as /api/status")
+	rootCmd.Flags().BoolVar(&useHTTPS, "https", false, "Serve HTTPS with an ephemeral self-signed certificate (not saved; browser warnings expected)")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
