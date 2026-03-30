@@ -414,7 +414,18 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			return
 		}
 		// Get path parameter (optional, defaults to root)
-		requestedPath := r.URL.Query().Get("path")
+		requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if requestedPath != "" {
+			if decoded, err := url.PathUnescape(requestedPath); err == nil {
+				requestedPath = decoded
+			}
+			before := strings.Trim(requestedPath, "/")
+			requestedPath = normalizeURLPath(requestedPath)
+			if requestedPath == "" && before != "" {
+				http.Error(w, "Path not found", http.StatusNotFound)
+				return
+			}
+		}
 
 		var filesInfo []FileInfo
 		var err error
@@ -531,6 +542,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 		query := strings.TrimSpace(r.URL.Query().Get("q"))
 		requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if requestedPath != "" {
+			if decoded, err := url.PathUnescape(requestedPath); err == nil {
+				requestedPath = decoded
+			}
+			before := strings.Trim(requestedPath, "/")
+			requestedPath = normalizeURLPath(requestedPath)
+			if requestedPath == "" && before != "" {
+				http.Error(w, "Path not found", http.StatusNotFound)
+				return
+			}
+		}
 		if query == "" {
 			http.Error(w, "Missing search query", http.StatusBadRequest)
 			return
@@ -644,6 +666,15 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Missing file or path query parameter", http.StatusBadRequest)
 			return
 		}
+		if decoded, err := url.PathUnescape(q); err == nil {
+			q = decoded
+		}
+		before := strings.Trim(q, "/")
+		q = normalizeURLPath(q)
+		if q == "" && before != "" {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
 		validatedPath, allowed := isPathAllowed(q)
 		if !allowed {
 			http.Error(w, "File not found", http.StatusNotFound)
@@ -679,6 +710,12 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			decodedPath, err := url.PathUnescape(requestedPath)
 			if err == nil {
 				requestedPath = decodedPath
+			}
+			beforeNorm := strings.Trim(requestedPath, "/")
+			requestedPath = normalizeURLPath(requestedPath)
+			if requestedPath == "" && beforeNorm != "" {
+				http.Error(w, "File not found", http.StatusNotFound)
+				return
 			}
 
 			// SECURITY: Validate that the requested path is within allowed directories
