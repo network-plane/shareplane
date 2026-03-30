@@ -92,6 +92,8 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	case "play":
 		// Let browser play/render inline based on content type.
+	case "preview":
+		// Inline in browser (images, PDF, text, etc.); no attachment header.
 	case "stream":
 		// Serve an M3U playlist pointing to the inline-play URL so external
 		// players (VLC/mpv/etc.) can open the stream reliably across browsers.
@@ -1172,6 +1174,18 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 return mediaExtensions.has(ext);
             }
 
+            function isPreviewableFile(filename) {
+                const ext = filename.toLowerCase().split('.').pop();
+                const previewExtensions = new Set([
+                    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico',
+                    'pdf',
+                    'txt', 'md', 'markdown', 'rst', 'log',
+                    'json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
+                    'html', 'htm', 'css', 'js', 'c', 'h', 'go', 'rs', 'py', 'sh', 'java', 'ts', 'tsx', 'jsx'
+                ]);
+                return previewExtensions.has(ext);
+            }
+
             function showStreamUrl(url) {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(url).then(function() {
@@ -1413,9 +1427,11 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         const encodedPath = encodePath(targetPath);
                         const downloadUrl = '/' + encodedPath + '?mode=download';
                         const playUrl = '/' + encodedPath + '?mode=play';
+                        const previewUrl = '/' + encodedPath + '?mode=preview';
                         const m3uUrl = '/' + encodedPath + '?mode=stream';
                         const absoluteStreamUrl = (publicBase || window.location.origin) + playUrl;
                         const mediaFile = isMediaFile(file.displayName);
+                        const previewFile = isPreviewableFile(file.displayName);
 
                         const actions = document.createElement('span');
                         actions.className = 'file-actions';
@@ -1426,6 +1442,17 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         downloadIcon.textContent = '⬇';
                         downloadIcon.title = 'Download';
                         actions.appendChild(downloadIcon);
+
+                        if (previewFile) {
+                            const previewIcon = document.createElement('a');
+                            previewIcon.className = 'action-icon';
+                            previewIcon.href = previewUrl;
+                            previewIcon.target = '_blank';
+                            previewIcon.rel = 'noopener noreferrer';
+                            previewIcon.textContent = '👁';
+                            previewIcon.title = 'Preview in browser';
+                            actions.appendChild(previewIcon);
+                        }
 
                         if (mediaFile) {
                             const playIcon = document.createElement('a');
@@ -1669,6 +1696,8 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             <li><a href="/api/files">/api/files</a> — JSON (<code>?path=relative/dir</code> optional)</li>
             <li><a href="/api/search?q=">/api/search</a> — search (<code>q</code> required; <code>path</code> scopes to folder)</li>
             <li><a href="/verify?file=">/verify</a> — JSON SHA1 for a file (<code>file</code> or <code>path</code>)</li>
+            <li><a href="/api/downloads">/api/downloads</a> — JSON: per-client IP, full vs partial fetches per file</li>
+            <li><code>GET /…?mode=preview</code> — inline preview (images, PDF, text, etc.) in the browser</li>
         </ul>
     </div>
     <footer style="margin-top: 30px; padding: 20px; text-align: center; {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: var(--muted);{{end}} border-top: 1px solid var(--border-color);">
