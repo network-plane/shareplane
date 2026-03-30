@@ -131,6 +131,7 @@ func buildAPIStatusResponse() apiStatusResponse {
 		TotalListingBytes:  listing,
 		Files:              files,
 		Clients:            copyClientsSnapshot(),
+		Activity:           copyActivitySnapshot(),
 	}
 }
 
@@ -305,6 +306,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	// API endpoint for JSON data
 	http.HandleFunc("/api/files", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		// Get path parameter (optional, defaults to root)
 		requestedPath := r.URL.Query().Get("path")
 
@@ -405,11 +410,21 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
+		ip := getRealIP(r)
+		listDetail := "path=(root)"
+		if requestedPath != "" {
+			listDetail = "path=" + filepath.ToSlash(requestedPath)
+		}
+		recordActivity(ip, "list", listDetail)
 	}, getRealIP))
 
 	// API endpoint for searching files/directories by name
 	http.HandleFunc("/api/search", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
 		query := strings.TrimSpace(r.URL.Query().Get("q"))
 		requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
@@ -481,6 +496,11 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
+		searchDetail := fmt.Sprintf("q=%q", query)
+		if requestedPath != "" {
+			searchDetail += fmt.Sprintf(" scope=%q", filepath.ToSlash(requestedPath))
+		}
+		recordActivity(getRealIP(r), "search", searchDetail)
 	}, getRealIP))
 
 	// GET /api/downloads — per-client IP: which files were fetched in full vs partial (Range/incomplete)
@@ -580,6 +600,9 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					return
 				}
 				// It's a directory - serve the client-side HTML app with path parameter
+				if r.Method == http.MethodGet {
+					recordActivity(getRealIP(r), "browse", "path=/"+filepath.ToSlash(requestedPath))
+				}
 				renderClientApp(w, hash, colorScheme, getAppVersion())
 				return
 			}
@@ -596,6 +619,9 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			return
 		}
 		// Serve the client-side HTML that will fetch from /api/files
+		if r.Method == http.MethodGet {
+			recordActivity(getRealIP(r), "browse", "path=/")
+		}
 		renderClientApp(w, hash, colorScheme, getAppVersion())
 	}, getRealIP))
 

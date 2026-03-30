@@ -32,7 +32,7 @@
 - [ ] Add the ability for the user to select multiple files and download them as one archive (flag `--single-stream`). We pack in zstd or tar.gz on the fly, no storage of files. When this is enabled we show checkboxes to the user. If a user selects one or more then below the table we show a link named `archive.zstd` and one `archive.tar.gz` - whichever they choose that's the file they download [#30]
 - [ ] Add `--log filename.log` - we log everything to a log file [#31]
 - [ ] Add a `/stats` endpoint when the `--stats` flag is provided that shows live updated stats for the downloads [#32]
-- [ ] Add a CLI command `shareplane status` to show live stats when running as a service (separate from the TUI) [#33]
+- [x] Add a CLI command `shareplane status` to show live stats when running as a service (separate from the TUI) [#33]
 - [ ] Add a TUI with the flag `--tui` that shows the live stats for everything getting downloaded etc (use our package) [#34]
 - [ ] Add `--https` with self-signed key/cert (we generate it on the fly, we don't store it) [#35]
 - [ ] Add `--cert`/`--key` flags to allow the usage of a real cert and its key for HTTPS (if they are valid we instantly support HTTPS) [#36]

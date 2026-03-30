@@ -51,5 +51,13 @@ func runShareplaneStatus(base string) error {
 			fmt.Printf("    %s %d full, %d partial\n", f.Path, f.Full, f.Partial)
 		}
 	}
+	if len(data.Activity) == 0 {
+		fmt.Println("Recent UI/API activity: (none)")
+	} else {
+		fmt.Println("Recent UI/API activity (newest first):")
+		for _, ev := range data.Activity {
+			fmt.Printf("  %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ev.IP, ev.Kind, ev.Detail)
+		}
+	}
 	return nil
 }

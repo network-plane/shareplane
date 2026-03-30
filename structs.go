@@ -90,6 +90,7 @@ type apiStatusResponse struct {
 	TotalListingBytes  int64               `json:"totalListingBytes"`
 	Files              []apiStatusFile     `json:"files"`
 	Clients            []apiDownloadClient `json:"clients"`
+	Activity           []activityEvent     `json:"activity"`
 }
 
 type apiStatusFile struct {

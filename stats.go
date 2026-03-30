@@ -11,4 +11,5 @@ func printStats() {
 	}
 	fmt.Printf("Total bytes for file downloads: %d\n", totalDownloadedBytes)
 	fmt.Printf("Total bytes for file listings: %d\n", totalBytesSentForListings)
+	printActivityLog()
 }
