@@ -23,6 +23,7 @@ var serverCfg struct {
 	EphemeralTLS       bool // --https: in-memory self-signed cert (not persisted)
 	TLSCertFile        string
 	TLSKeyFile         string
+	EnableTUI          bool
 }
 
 // globalBytesTransferred counts bytes sent for completed file responses (finish()).

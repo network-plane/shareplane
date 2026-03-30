@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.2.7"
+	appVersion     = "1.2.8"
 	port           string
 	ip             string
 	showHidden     bool
@@ -50,6 +50,7 @@ var (
 	useHTTPS       bool
 	tlsCertFile    string
 	tlsKeyFile     string
+	enableTUI      bool
 )
 
 func main() {
@@ -158,6 +159,7 @@ func main() {
 			serverCfg.EphemeralTLS = useHTTPS
 			serverCfg.TLSCertFile = tlsCertFile
 			serverCfg.TLSKeyFile = tlsKeyFile
+			serverCfg.EnableTUI = enableTUI
 
 			if (tlsCertFile != "") != (tlsKeyFile != "") {
 				fmt.Fprintf(os.Stderr, "Error: --cert and --key must be set together\n")
@@ -169,6 +171,9 @@ func main() {
 				os.Exit(1)
 			}
 			defer closeServerLog()
+			if enableTUI {
+				tuiServerOutput(logFilePath)
+			}
 
 			if shareTTL != "" {
 				parsed, err := parseShareTTL(shareTTL)
@@ -230,6 +235,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&useHTTPS, "https", false, "Serve HTTPS with an ephemeral self-signed certificate (not saved; browser warnings expected)")
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert", "", "Path to TLS certificate (PEM); use with --key (takes precedence over --https)")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key", "", "Path to TLS private key (PEM); use with --cert")
+	rootCmd.Flags().BoolVar(&enableTUI, "tui", false, "Show live /api/status in the terminal (server runs in background; use --log to capture server output to a file)")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",

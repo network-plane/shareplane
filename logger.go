@@ -32,6 +32,17 @@ func closeServerLog() {
 	}
 }
 
+// tuiServerOutput avoids corrupting the TUI: silence stdout, or log to file only when --log is set.
+func tuiServerOutput(logPath string) {
+	if logPath == "" {
+		serverOut = io.Discard
+		return
+	}
+	if serverLogFile != nil {
+		serverOut = serverLogFile
+	}
+}
+
 func outPrintf(format string, a ...interface{}) {
 	fmt.Fprintf(serverOut, format, a...)
 }

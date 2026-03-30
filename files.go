@@ -893,6 +893,21 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		}
 	}
 
+	if serverCfg.EnableTUI {
+		go func() {
+			if err := server.Serve(outer); err != nil && err != http.ErrServerClosed {
+				outPrintf("HTTP server: %v\n", err)
+			}
+		}()
+		runTUIBlocking(port)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = server.Shutdown(ctx)
+		cancel()
+		printStats()
+		os.Exit(0)
+		return
+	}
+
 	if err := server.Serve(outer); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
