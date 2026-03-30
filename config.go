@@ -17,6 +17,9 @@ var serverCfg struct {
 	BasicPass          string
 	EnableQR           bool
 	EnableWebDAV       bool
+	EncryptPassword    string
+	EnableSingleStream bool
+	EnableStatsPage    bool
 }
 
 // globalBytesTransferred counts bytes sent for completed file responses (finish()).

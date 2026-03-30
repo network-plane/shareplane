@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -118,7 +117,7 @@ func (fw *fileWatcher) processEvents() {
 			if !ok {
 				return
 			}
-			fmt.Printf("[Reload] Watcher error: %v\n", err)
+			outPrintf("[Reload] Watcher error: %v\n", err)
 		case <-fw.stopChan:
 			return
 		}
@@ -166,11 +165,11 @@ func (fw *fileWatcher) handleCreate(path string) {
 	}
 
 	if fileInfo.IsDir() {
-		fmt.Printf("[Reload] New directory detected: %s\n", path)
+		outPrintf("[Reload] New directory detected: %s\n", path)
 		// Watch the new directory
 		fw.watchPath(path)
 	} else {
-		fmt.Printf("[Reload] New file detected: %s (%s)\n", path, formatSize(fileInfo.Size()))
+		outPrintf("[Reload] New file detected: %s (%s)\n", path, formatSize(fileInfo.Size()))
 	}
 }
 
@@ -191,9 +190,9 @@ func (fw *fileWatcher) handleRemove(path string) {
 	fw.mu.RUnlock()
 
 	if wasDir {
-		fmt.Printf("[Reload] Directory removed: %s\n", path)
+		outPrintf("[Reload] Directory removed: %s\n", path)
 	} else {
-		fmt.Printf("[Reload] File removed: %s\n", path)
+		outPrintf("[Reload] File removed: %s\n", path)
 	}
 }
 
@@ -206,7 +205,7 @@ func (fw *fileWatcher) handleWrite(path string) {
 
 	// Only report writes for files, not directories
 	if !fileInfo.IsDir() {
-		fmt.Printf("[Reload] File modified: %s (%s)\n", path, formatSize(fileInfo.Size()))
+		outPrintf("[Reload] File modified: %s (%s)\n", path, formatSize(fileInfo.Size()))
 	}
 }
 
@@ -216,14 +215,14 @@ func (fw *fileWatcher) handleRename(path string) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		// File was renamed/moved away
-		fmt.Printf("[Reload] File/directory renamed/moved: %s\n", path)
+		outPrintf("[Reload] File/directory renamed/moved: %s\n", path)
 		return
 	}
 
 	if fileInfo.IsDir() {
-		fmt.Printf("[Reload] Directory renamed/moved: %s\n", path)
+		outPrintf("[Reload] Directory renamed/moved: %s\n", path)
 	} else {
-		fmt.Printf("[Reload] File renamed/moved: %s\n", path)
+		outPrintf("[Reload] File renamed/moved: %s\n", path)
 	}
 }
 

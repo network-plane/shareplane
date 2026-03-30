@@ -141,6 +141,13 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 	clientIP := getRealIP(r)
 	isHEAD := r.Method == "HEAD"
 
+	if t := r.URL.Query().Get("token"); t != "" {
+		if !tryConsumeOneTimeToken(t) {
+			http.Error(w, "Invalid or expired one-time token", http.StatusForbidden)
+			return
+		}
+	}
+
 	// Default behavior is download unless explicitly overridden.
 	switch mode {
 	case "", "download":
@@ -213,6 +220,37 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		}
 	}
 
+	// Password-protected zstd download (--encrypt): only for attachment-style download, not play/preview/stream
+	if serverCfg.EncryptPassword != "" && (mode == "" || mode == "download") {
+		relPath := getRelativePath(validatedPath, allowedPaths)
+		fw := http.ResponseWriter(w)
+		if bandwidthLimit > 0 && !isHEAD {
+			fw = &rateLimitedWriter{
+				ResponseWriter: w,
+				bytesPerSecond: bandwidthLimit,
+				lastWrite:      time.Now(),
+			}
+		}
+		if isHEAD {
+			if err := serveEncryptedZstd(fw, r, validatedPath, serverCfg.EncryptPassword); err != nil {
+				return
+			}
+			return
+		}
+		cw := &countingWriter{
+			ResponseWriter: fw,
+			path:           relPath,
+			clientIP:       clientIP,
+			isRangeRequest: false,
+			fileSize:       0,
+		}
+		if err := serveEncryptedZstd(cw, r, validatedPath, serverCfg.EncryptPassword); err != nil {
+			return
+		}
+		cw.finish()
+		return
+	}
+
 	// Check if this is a Range request (for resuming downloads or partial fetches)
 	isRangeRequest := r.Header.Get("Range") != ""
 
@@ -245,7 +283,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		// Range requests intentionally send fewer bytes, so don't warn for those
 		if !isRangeRequest && cw.bytesWritten < fileSize {
 			relPath := getRelativePath(validatedPath, allowedPaths)
-			fmt.Printf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", relPath, cw.bytesWritten, fileSize)
+			outPrintf("Warning: File %s was not fully downloaded. Sent %d bytes out of %d total bytes.\n", relPath, cw.bytesWritten, fileSize)
 		}
 	}
 }
@@ -264,7 +302,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	serverNameSuffix = nameSuffix
 	// Initialize allowed paths for security validation
 	if err := initAllowedPaths(filePaths); err != nil {
-		fmt.Printf("Error initializing allowed paths: %v\n", err)
+		outPrintf("Error initializing allowed paths: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -284,7 +322,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				lastActivityMu.RUnlock()
 
 				if time.Since(last) >= idleTimeout {
-					fmt.Printf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
+					outPrintf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
 
 					// Cleanup rate limiter
 					rateLimiterMutex.Lock()
@@ -308,7 +346,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					if server != nil {
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						if err := server.Shutdown(ctx); err != nil {
-							fmt.Printf("[Idle Timeout] Error shutting down server: %v\n", err)
+							outPrintf("[Idle Timeout] Error shutting down server: %v\n", err)
 						}
 						cancel()
 					}
@@ -319,7 +357,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			}
 		}()
 
-		fmt.Printf("[Idle Timeout] Server will shut down after %v of inactivity\n", idleTimeout)
+		outPrintf("[Idle Timeout] Server will shut down after %v of inactivity\n", idleTimeout)
 	}
 
 	// API endpoint for JSON data
@@ -337,6 +375,37 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		updateLastActivity()
 		handleManifestJSON(w, r, filePaths, showHidden, hash, maxHashSize)
 	}))
+
+	http.HandleFunc("/api/one-time-token", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		tok := issueOneTimeToken()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": tok})
+	}))
+
+	if serverCfg.EnableStatsPage {
+		http.HandleFunc("/stats", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+			updateLastActivity()
+			if r.Method != http.MethodGet {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(buildAPIStatusResponse())
+		}))
+	}
+
+	if serverCfg.EnableSingleStream {
+		http.HandleFunc("/archive", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+			updateLastActivity()
+			handleArchive(w, r)
+		}))
+	}
 
 	http.HandleFunc("/api/files", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
@@ -637,7 +706,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				if r.Method == http.MethodGet {
 					recordActivity(getRealIP(r), "browse", "path=/"+filepath.ToSlash(requestedPath))
 				}
-				renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR)
+				renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream)
 				return
 			}
 			// It's a file, serve it normally (validatedPath is already validated)
@@ -656,7 +725,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		if r.Method == http.MethodGet {
 			recordActivity(getRealIP(r), "browse", "path=/")
 		}
-		renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR)
+		renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR, serverCfg.EnableSingleStream)
 	}))
 
 	// Start file watcher if reload is enabled
@@ -664,12 +733,12 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		fileWatcherMutex.Lock()
 		watcher, err := newFileWatcher(filePaths, showHidden)
 		if err != nil {
-			fmt.Printf("Warning: Failed to initialize file watcher: %v\n", err)
-			fmt.Println("Auto-reload will not be available.")
+			outPrintf("Warning: Failed to initialize file watcher: %v\n", err)
+			outPrintln("Auto-reload will not be available.")
 		} else {
 			globalFileWatcher = watcher
 			globalFileWatcher.start()
-			fmt.Println("Auto-reload enabled: monitoring files for changes in real-time...")
+			outPrintln("Auto-reload enabled: monitoring files for changes in real-time...")
 		}
 		fileWatcherMutex.Unlock()
 	}
@@ -678,8 +747,8 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 	// If listening on 0.0.0.0, show all available IP addresses
 	if ip == "0.0.0.0" {
-		fmt.Printf("Serving on http://%s\n", listenAddress)
-		fmt.Println("Available on:")
+		outPrintf("Serving on http://%s\n", listenAddress)
+		outPrintln("Available on:")
 		interfaces, err := net.Interfaces()
 		if err == nil {
 			for _, iface := range interfaces {
@@ -690,17 +759,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				for _, addr := range addrs {
 					if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
 						if ipNet.IP.To4() != nil {
-							fmt.Printf("  http://%s:%s\n", ipNet.IP.String(), port)
+							outPrintf("  http://%s:%s\n", ipNet.IP.String(), port)
 						}
 					}
 				}
 			}
 		}
 		// Also show localhost
-		fmt.Printf("  http://127.0.0.1:%s\n", port)
-		fmt.Printf("  http://localhost:%s\n", port)
+		outPrintf("  http://127.0.0.1:%s\n", port)
+		outPrintf("  http://localhost:%s\n", port)
 	} else {
-		fmt.Printf("Serving on http://%s\n", listenAddress)
+		outPrintf("Serving on http://%s\n", listenAddress)
 	}
 
 	// Create HTTP server for graceful shutdown support
@@ -717,7 +786,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	if serverCfg.EnableWebDAV {
 		rootDav := allowedPaths[0]
 		if len(allowedPaths) > 1 {
-			fmt.Println("Note: --webdav exports only the first shared path as WebDAV root.")
+			outPrintln("Note: --webdav exports only the first shared path as WebDAV root.")
 		}
 		wdh := &webdav.Handler{
 			FileSystem: webdav.Dir(rootDav),
@@ -727,16 +796,16 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			updateLastActivity()
 			http.StripPrefix("/webdav", wdh).ServeHTTP(w, r)
 		}))
-		fmt.Printf("WebDAV enabled at /webdav/ (root: %s)\n", rootDav)
+		outPrintf("WebDAV enabled at /webdav/ (root: %s)\n", rootDav)
 	}
 
 	if !serverCfg.TTLDeadline.IsZero() {
 		d := time.Until(serverCfg.TTLDeadline)
 		if d > 0 {
-			fmt.Printf("Share TTL: server stops after %v (at %s UTC)\n", d, serverCfg.TTLDeadline.UTC().Format(time.RFC3339))
+			outPrintf("Share TTL: server stops after %v (at %s UTC)\n", d, serverCfg.TTLDeadline.UTC().Format(time.RFC3339))
 			go func() {
 				time.Sleep(d)
-				fmt.Println("Share TTL expired; shutting down...")
+				outPrintln("Share TTL expired; shutting down...")
 				httpServerMu.RLock()
 				srv := httpServer
 				httpServerMu.RUnlock()
@@ -1034,6 +1103,8 @@ type templateData struct {
 	Files           []FileInfo
 	ShowHash        bool
 	ShowQR          bool
+	SingleStream    bool
+	StatsPage       bool
 	WebDAVEnabled   bool
 	ColorScheme     *colorScheme
 	UseDefaultTheme bool
@@ -1096,7 +1167,7 @@ func handleManifestJSON(w http.ResponseWriter, r *http.Request, filePaths []stri
 }
 
 // renderClientApp renders the client-side HTML application that fetches data from the API
-func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string, showQR bool) {
+func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string, showQR bool, singleStream bool) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("clientApp").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -1146,16 +1217,13 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             content: ' ↓';
             opacity: 1;
         }
-        th:nth-child(2) {
+        th.sortable[data-sort="size"], td.size-cell {
             text-align: right;
         }
         td {
             padding: 10px 12px;
             border-bottom: 1px solid var(--border-color);
             {{if .ColorScheme}}color: {{.ColorScheme.TableOtherText}};{{else}}color: var(--table-other-text);{{end}}
-        }
-        td:nth-child(2) {
-            text-align: right;
         }
         .hash {
             font-family: monospace;
@@ -1180,8 +1248,16 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             {{if .ColorScheme}}background-color: {{.ColorScheme.TableHeaderBg}};{{else}}background-color: var(--tfoot-bg);{{end}}
             {{if .ColorScheme}}color: {{.ColorScheme.TableHeaderText}};{{else}}color: var(--text);{{end}}
         }
-        tfoot td:nth-child(2) {
+        tfoot td.total-size-cell {
             text-align: right;
+        }
+        .archive-cb-header {
+            width: 2.25rem;
+            text-align: center;
+            cursor: default;
+        }
+        .archive-cb-header input {
+            cursor: pointer;
         }
         .loading {
             text-align: center;
@@ -1297,6 +1373,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
     <table id="fileTable" style="display: none;">
         <thead>
             <tr>
+                {{if .SingleStream}}<th class="archive-cb-header" scope="col"><input type="checkbox" id="archiveSelectAll" title="Select all files" aria-label="Select all files for archive"></th>{{end}}
                 <th class="sortable" data-sort="name" data-sort-type="string">Name</th>
                 <th class="sortable" data-sort="size" data-sort-type="number">Size</th>
                 <th id="hashHeader" class="sortable" data-sort="hash" data-sort-type="string" style="display: none;">SHA1</th>
@@ -1308,6 +1385,13 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
         <tfoot id="fileTableFooter">
         </tfoot>
     </table>
+    {{if .SingleStream}}
+    <div id="archiveBar" style="display: none; margin: 16px 0; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: 4px; max-width: 42rem;">
+        <span style="margin-right: 12px;">Archive selection:</span>
+        <a id="archiveLinkZstd" href="#" style="margin-right: 14px;">archive.zstd</a>
+        <a id="archiveLinkTGZ" href="#">archive.tar.gz</a>
+    </div>
+    {{end}}
     <script>
         (function() {
             const tableBody = document.getElementById('fileTableBody');
@@ -1322,6 +1406,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             let showHash = false;
             const publicBase = {{if .PublicBaseURL}}{{printf "%q" .PublicBaseURL}}{{else}}""{{end}};
             const showQR = {{if .ShowQR}}true{{else}}false{{end}};
+            const singleStream = {{if .SingleStream}}true{{else}}false{{end}};
             let activeSearchQuery = '';
             let searchDebounceTimer = null;
             let pendingSearchAbort = null;
@@ -1415,6 +1500,46 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     pendingSearchAbort.abort();
                     pendingSearchAbort = null;
                 }
+            }
+
+            function updateArchiveBar() {
+                if (!singleStream) return;
+                const bar = document.getElementById('archiveBar');
+                const aZ = document.getElementById('archiveLinkZstd');
+                const aT = document.getElementById('archiveLinkTGZ');
+                if (!bar || !aZ || !aT) return;
+                const boxes = document.querySelectorAll('.archive-file-cb:checked');
+                if (boxes.length === 0) {
+                    bar.style.display = 'none';
+                    return;
+                }
+                const parts = [];
+                boxes.forEach(function(cb) {
+                    const p = cb.getAttribute('data-path') || '';
+                    if (p) {
+                        parts.push('paths=' + encodeURIComponent(p));
+                    }
+                });
+                const q = parts.join('&');
+                aZ.href = '/archive?format=zstd&' + q;
+                aT.href = '/archive?format=tar.gz&' + q;
+                bar.style.display = '';
+            }
+
+            function syncSelectAllArchive() {
+                if (!singleStream) return;
+                const el = document.getElementById('archiveSelectAll');
+                const all = document.querySelectorAll('.archive-file-cb');
+                if (!el || all.length === 0) {
+                    if (el) {
+                        el.checked = false;
+                        el.indeterminate = false;
+                    }
+                    return;
+                }
+                const n = Array.prototype.filter.call(all, function(c) { return c.checked; }).length;
+                el.checked = n === all.length;
+                el.indeterminate = n > 0 && n < all.length;
             }
 
             function launchExternalPlayer(streamUrl, m3uUrl) {
@@ -1567,6 +1692,10 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 // Add parent directory row when not at root.
                 if (currentPath) {
                     const parentRow = document.createElement('tr');
+                    if (singleStream) {
+                        const parentCb = document.createElement('td');
+                        parentRow.appendChild(parentCb);
+                    }
                     const parentNameCell = document.createElement('td');
                     const parentLink = document.createElement('a');
                     const parentPath = getParentPath(currentPath);
@@ -1589,9 +1718,9 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     parentRow.appendChild(parentNameCell);
 
                     const parentSizeCell = document.createElement('td');
+                    parentSizeCell.className = 'size-cell';
                     parentSizeCell.setAttribute('data-sort-value', -1);
                     parentSizeCell.textContent = '-';
-                    parentSizeCell.style.textAlign = 'right';
                     parentRow.appendChild(parentSizeCell);
 
                     if (showHash) {
@@ -1611,11 +1740,25 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 
                 data.files.forEach(file => {
                     const row = document.createElement('tr');
-                    
+                    const targetPath = joinPath(currentPath, file.displayName);
+                    if (singleStream) {
+                        const cbCell = document.createElement('td');
+                        if (!file.isDir) {
+                            const cb = document.createElement('input');
+                            cb.type = 'checkbox';
+                            cb.className = 'archive-file-cb';
+                            cb.setAttribute('data-path', targetPath);
+                            cb.addEventListener('change', function() {
+                                updateArchiveBar();
+                                syncSelectAllArchive();
+                            });
+                            cbCell.appendChild(cb);
+                        }
+                        row.appendChild(cbCell);
+                    }
                     // Name column (link if not directory, otherwise navigate)
                     const nameCell = document.createElement('td');
                     const link = document.createElement('a');
-                    const targetPath = joinPath(currentPath, file.displayName);
                     if (file.isDir) {
                         const encodedPath = encodePath(targetPath);
                         link.href = '/' + encodedPath;
@@ -1716,9 +1859,9 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     
                     // Size column
                     const sizeCell = document.createElement('td');
+                    sizeCell.className = 'size-cell';
                     sizeCell.setAttribute('data-sort-value', file.size);
                     sizeCell.textContent = formatSize(file.size);
-                    sizeCell.style.textAlign = 'right';
                     row.appendChild(sizeCell);
                     
                     // Hash column (if enabled)
@@ -1747,13 +1890,32 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 // Update footer
                 const footerRow = document.createElement('tr');
                 const fileText = data.fileCount !== 1 ? 's' : '';
-                const hashCell = showHash ? '<td></td>' : '';
-                footerRow.innerHTML = '<td><strong>Total: ' + data.fileCount + ' file' + fileText + '</strong></td>' +
-                    '<td><strong>' + formatSize(data.totalSize) + '</strong></td>' +
-                    hashCell +
+                const hashFoot = showHash ? '<td></td>' : '';
+                let cbFoot = '';
+                if (singleStream) {
+                    cbFoot = '<td></td>';
+                }
+                footerRow.innerHTML = cbFoot + '<td><strong>Total: ' + data.fileCount + ' file' + fileText + '</strong></td>' +
+                    '<td class="total-size-cell"><strong>' + formatSize(data.totalSize) + '</strong></td>' +
+                    hashFoot +
                     '<td></td>';
                 tableFooter.innerHTML = '';
                 tableFooter.appendChild(footerRow);
+
+                if (singleStream) {
+                    const selAll = document.getElementById('archiveSelectAll');
+                    if (selAll && !selAll._bound) {
+                        selAll._bound = true;
+                        selAll.addEventListener('change', function() {
+                            document.querySelectorAll('.archive-file-cb').forEach(function(cb) {
+                                cb.checked = selAll.checked;
+                            });
+                            updateArchiveBar();
+                        });
+                    }
+                    updateArchiveBar();
+                    syncSelectAllArchive();
+                }
             }
             
             // Sort table
@@ -1792,9 +1954,9 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 rows.forEach(row => tableBody.appendChild(row));
                 
                 const headers = document.querySelectorAll('th.sortable');
-                headers.forEach((header, idx) => {
+                headers.forEach((header) => {
                     header.classList.remove('sort-asc', 'sort-desc');
-                    if (idx === columnIndex) {
+                    if (header.cellIndex === columnIndex) {
                         header.classList.add('sort-' + newDirection);
                     }
                 });
@@ -1803,10 +1965,10 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             }
             
             // Add click handlers to headers
-            document.querySelectorAll('th.sortable').forEach((header, index) => {
+            document.querySelectorAll('th.sortable').forEach((header) => {
                 header.addEventListener('click', () => {
                     const sortType = header.getAttribute('data-sort-type');
-                    sortTable(index, sortType);
+                    sortTable(header.cellIndex, sortType);
                 });
             });
             
@@ -1934,6 +2096,9 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             <li><a href="/verify?file=">/verify</a> — JSON SHA1 for a file (<code>file</code> or <code>path</code>)</li>
             <li><a href="/api/downloads">/api/downloads</a> — JSON: per-client IP, full vs partial fetches per file</li>
             <li><a href="/api/status">/api/status</a> — JSON: version, totals, per-file and per-client stats</li>
+            {{if .StatsPage}}<li><a href="/stats">/stats</a> — same JSON as <code>/api/status</code> (<code>Cache-Control: no-store</code>)</li>{{end}}
+            <li><a href="/api/one-time-token">/api/one-time-token</a> — JSON one-time token (append <code>?token=</code> to a file URL; consumed on first successful GET)</li>
+            {{if .SingleStream}}<li><code>GET /archive</code> — stream archive: <code>format=zstd</code> or <code>tar.gz</code>, repeat <code>paths=</code> for each file</li>{{end}}
             <li><a href="/api/events">/api/events</a> — JSON event log; <a href="/events">/events</a> — SSE stream</li>
             <li><a href="/manifest.json">/manifest.json</a> — shared files metadata (JSON)</li>
             {{if .WebDAVEnabled}}<li><code>WebDAV</code> — <code>/webdav/</code> (same auth as HTTP)</li>{{end}}
@@ -1962,6 +2127,8 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 	data := templateData{
 		ShowHash:        showHash,
 		ShowQR:          showQR,
+		SingleStream:    singleStream,
+		StatsPage:       serverCfg.EnableStatsPage,
 		WebDAVEnabled:   serverCfg.EnableWebDAV,
 		ColorScheme:     colorScheme,
 		UseDefaultTheme: colorScheme == nil,

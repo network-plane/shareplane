@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.2.3"
+	appVersion     = "1.2.4"
 	port           string
 	ip             string
 	showHidden     bool
@@ -43,6 +43,10 @@ var (
 	basicPassword  string
 	enableQR       bool
 	enableWebDAV   bool
+	encryptPass    string
+	logFilePath    string
+	singleStream   bool
+	statsPage      bool
 )
 
 func main() {
@@ -145,6 +149,15 @@ func main() {
 			serverCfg.BasicPass = ""
 			serverCfg.EnableQR = enableQR
 			serverCfg.EnableWebDAV = enableWebDAV
+			serverCfg.EncryptPassword = encryptPass
+			serverCfg.EnableSingleStream = singleStream
+			serverCfg.EnableStatsPage = statsPage
+
+			if err := initServerLog(logFilePath); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: cannot open log file: %v\n", err)
+				os.Exit(1)
+			}
+			defer closeServerLog()
 
 			if shareTTL != "" {
 				parsed, err := parseShareTTL(shareTTL)
@@ -199,6 +212,10 @@ func main() {
 	rootCmd.Flags().StringVar(&basicPassword, "basic-password", "", "HTTP Basic auth password (optional; empty = omit password check)")
 	rootCmd.Flags().BoolVar(&enableQR, "qr", false, "Show QR code buttons for direct download links in the listing")
 	rootCmd.Flags().BoolVar(&enableWebDAV, "webdav", false, "Serve WebDAV at /webdav/ (first shared path only)")
+	rootCmd.Flags().StringVar(&encryptPass, "encrypt", "", "Password for encrypted downloads (AES-GCM over zstd; max 64 MiB per file; Range not supported)")
+	rootCmd.Flags().StringVar(&logFilePath, "log", "", "Append server output to this file as well as stdout")
+	rootCmd.Flags().BoolVar(&singleStream, "single-stream", false, "Enable GET /archive (zstd or tar.gz) and listing checkboxes for multi-file download")
+	rootCmd.Flags().BoolVar(&statsPage, "stats", false, "Expose GET /stats with the same JSON as /api/status")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",

@@ -32,38 +32,45 @@ func lookupDownloadCount(displayPath string) int64 {
 
 // Called after serving a file to update global stats and print download progress
 func (w *countingWriter) finish() {
+	recordServedDownload(w.path, w.clientIP, w.bytesWritten, w.fileSize, w.isRangeRequest)
+}
+
+func recordServedDownload(relPath, clientIP string, bytesWritten, fileSize int64, isRangeRequest bool) {
 	statsMutex.Lock()
 	defer statsMutex.Unlock()
 
-	key := normalizeStatsPath(w.path)
+	key := normalizeStatsPath(relPath)
 	stats := downloadStats[key]
-	stats.Bytes += w.bytesWritten
+	stats.Bytes += bytesWritten
 	stats.Count++
 	downloadStats[key] = stats
 
-	partial := w.isRangeRequest || w.bytesWritten < w.fileSize
-	perClientMu.Lock()
-	if _, ok := perClientFileStats[w.clientIP]; !ok {
-		perClientFileStats[w.clientIP] = make(map[string]clientFileStat)
+	partial := isRangeRequest
+	if fileSize > 0 {
+		partial = partial || bytesWritten < fileSize
 	}
-	cf := perClientFileStats[w.clientIP][key]
+	perClientMu.Lock()
+	if _, ok := perClientFileStats[clientIP]; !ok {
+		perClientFileStats[clientIP] = make(map[string]clientFileStat)
+	}
+	cf := perClientFileStats[clientIP][key]
 	if partial {
 		cf.Partial++
 	} else {
 		cf.Full++
 	}
-	perClientFileStats[w.clientIP][key] = cf
+	perClientFileStats[clientIP][key] = cf
 	perClientMu.Unlock()
 
 	kind := "full"
 	if partial {
 		kind = "partial"
 	}
-	fmt.Printf("Served file %s to %s (%s), sent %d bytes\n", key, w.clientIP, kind, w.bytesWritten)
+	outPrintf("Served file %s to %s (%s), sent %d bytes\n", key, clientIP, kind, bytesWritten)
 	if serverCfg.ByteLimit > 0 {
-		atomic.AddInt64(&globalBytesTransferred, w.bytesWritten)
+		atomic.AddInt64(&globalBytesTransferred, bytesWritten)
 	}
-	appendServerEvent("download", w.clientIP, fmt.Sprintf("path=%s kind=%s bytes=%d", key, kind, w.bytesWritten))
+	appendServerEvent("download", clientIP, fmt.Sprintf("path=%s kind=%s bytes=%d", key, kind, bytesWritten))
 }
 
 // Write method for rateLimitedWriter that throttles writes based on bandwidth limit

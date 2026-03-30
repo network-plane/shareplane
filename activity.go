@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -30,7 +29,7 @@ func recordActivity(ip, kind, detail string) {
 	}
 	activityMu.Unlock()
 
-	fmt.Printf("[activity] %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ip, kind, detail)
+	outPrintf("[activity] %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ip, kind, detail)
 	appendServerEvent(kind, ip, detail)
 }
 
@@ -52,11 +51,11 @@ func copyActivitySnapshot() []activityEvent {
 func printActivityLog() {
 	events := copyActivitySnapshot()
 	if len(events) == 0 {
-		fmt.Println("Recent UI/API activity: (none)")
+		outPrintln("Recent UI/API activity: (none)")
 		return
 	}
-	fmt.Println("Recent UI/API activity (newest first):")
+	outPrintln("Recent UI/API activity (newest first):")
 	for _, ev := range events {
-		fmt.Printf("  %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ev.IP, ev.Kind, ev.Detail)
+		outPrintf("  %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ev.IP, ev.Kind, ev.Detail)
 	}
 }
