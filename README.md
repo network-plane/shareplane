@@ -5,12 +5,13 @@ A lightweight HTTP server written in Go for serving files and directories over H
 ## Features
 
 - **Simple & Fast**: Minimal overhead, easy to use
-- **File & Directory Serving**: Serve individual files or entire directories
+- **File & Directory Serving**: Serve individual files or entire directories (URL-encoded paths, nested folders, safe rejection of `..` segments)
 - **HTTP Range Support**: Supports HTTP Range requests (206 Partial Content) for resuming downloads and partial file fetches
-- **Download Statistics**: Track downloads with byte counts and request statistics
+- **Download Statistics**: Track downloads with byte counts, per-client full/partial fetches, and optional activity/event logs
 - **Customizable Binding**: Configure IP address and port
+- **HTTPS**: Optional ephemeral self-signed certificate (`--https`) or PEM `--cert` / `--key` (TLS and PROXY listener are not combined; see below)
 - **Network Interface Detection**: When binding to `0.0.0.0`, automatically shows all available IP addresses
-- **File Listing**: Automatic HTML file listing at the root path
+- **File Listing**: Automatic HTML file listing at the root path (search, sort, optional QR codes, multi-file archive links when enabled)
 - **Glob Pattern Support**: Use glob patterns to select multiple files
 - **Hidden File Filtering**: Hidden files (starting with `.`) are excluded from listings by default
 - **File Hashing**: Optional SHA1 hash calculation and display for files in listings
@@ -18,6 +19,17 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **Bandwidth Limiting**: Optional bandwidth throttling for file transfers
 - **Rate Limiting**: Built-in DoS protection with per-IP request rate limiting (default: 20 req/s)
 - **Idle Timeout**: Automatically shut down the server after a period of inactivity
+- **Share TTL & Caps**: Optional time-to-live shutdown, total byte cap, per-file max download count, IP allow/deny lists
+- **HTTP Basic Auth**: Optional username/password (or either alone)
+- **Optional WebDAV** at `/webdav/` (first shared path)
+- **Encrypted downloads** (`--encrypt`): password-protected payload (AES-GCM over zstd; max 64 MiB per file; no Range)
+- **One-time tokens**: `GET /api/one-time-token`, then append `?token=` to a URL (single successful GET)
+- **Multi-file archives** (`--single-stream`): `GET /archive` (zstd or tar.gz) and UI checkboxes
+- **Uploads** (`--upload`): `POST /api/upload` with multipart field `files`; optional `subdir=`; progress in the browser
+- **Logging (`--log`)**: Tee server messages to a file as well as stdout
+- **Stats JSON**: `GET /api/status`; optional mirror `GET /stats` with `--stats`
+- **CLI `shareplane status`**: Print live stats from a running server (same data as `/api/status`)
+- **Terminal `--tui`**: Full-screen live view of `/api/status` (uses [Bubble Tea](https://github.com/charmbracelet/bubbletea); use `--log` to keep server output on disk)
 - **Real-time Progress**: See download progress as files are served
 - **Graceful Shutdown**: Print statistics on exit (SIGINT/SIGTERM)
 
@@ -135,6 +147,43 @@ Serve multiple files and directories:
   - `PORT`: Set the port (same as `--port`)
   - `IP`: Set the IP address (same as `--ip`)
 
+#### Sharing limits and access control
+
+- `--ttl`: Stop the server after a duration from launch (plain number = minutes; or suffixes such as `m`, `h`, `d`, `w`, `mo`). Not persisted across restarts.
+- `--byte-limit`: Stop serving after this many bytes have been transferred (same units as `--bw-limit`).
+- `--max-count`: Maximum *completed* downloads per file (`0` = unlimited).
+- `--whitelist` / `--blacklist`: Comma-separated client IPs or CIDRs (uses proxy-aware IP from `X-Forwarded-For`, etc.).
+- `--basic-user` / `--basic-password`: HTTP Basic authentication (either may be empty to check only the other).
+
+#### HTTPS
+
+- `--https`: Listen with an **ephemeral** self-signed TLS certificate (not written to disk; browsers will warn).
+- `--cert` / `--key`: Paths to PEM certificate and private key. If both are set, they take precedence over `--https`.
+
+When TLS is enabled, the TCP listener uses TLS directly; the HAProxy PROXY protocol wrapper is **not** applied on that listener.
+
+#### UI and integrations
+
+- `--qr`: Show QR code buttons for direct download links in the listing.
+- `--webdav`: Expose WebDAV at `/webdav/` (first shared path only).
+- `--encrypt`: Password for encrypted download bodies (see implementation limits in `--help`).
+- `--log`: Append server log output to a file as well as stdout.
+- `--single-stream`: Enable `GET /archive` (formats `zstd` or `tar.gz`) and archive checkboxes in the HTML UI.
+- `--stats`: Also serve `GET /stats` with the same JSON as `/api/status` (`Cache-Control: no-store`).
+- `--tui`: Run an interactive terminal dashboard polling `/api/status` (server runs in the background; prefer `--log` to capture server output).
+- `--upload`: Directory that receives uploaded files (`POST /api/upload`). Created if missing; merged into listings when not already part of the shared paths.
+
+#### CLI: `shareplane status`
+
+Prints live stats from a running instance (wraps `GET /api/status`):
+
+```bash
+shareplane status
+shareplane status --url https://127.0.0.1:8443
+```
+
+Uses `SHAREPLANE_URL` when `--url` is omitted (default base `http://127.0.0.1:8080`).
+
 ### Examples
 
 Serve files on a custom port:
@@ -191,11 +240,34 @@ Access files:
 - Visit `http://localhost:8080/` to see a file listing
 - Access files directly: `http://localhost:8080/filename.txt`
 
-## API Endpoint
+## API and HTTP endpoints
 
-The server provides a JSON API endpoint for programmatic access to file listings. This is useful for scripts, tools, and automation.
+Summary of useful routes (many require specific flags; see the in-app **Endpoints** box on the listing page):
+
+| Path | Description |
+|------|-------------|
+| `/` | HTML file browser |
+| `/api/files` | JSON listing; optional `?path=` |
+| `/api/search` | Search; `q=` required; optional `path=` scope |
+| `/api/status` | JSON: version, bytes, per-file and per-client stats, activity, events |
+| `/stats` | Same JSON as `/api/status` when started with `--stats` |
+| `/api/downloads` | Per-client IP and per-file full vs partial fetch counts |
+| `/api/events` | JSON event log |
+| `/events` | Server-Sent Events stream |
+| `/verify` | JSON SHA1 for `?file=` or `?path=` (relative path) |
+| `/manifest.json` | JSON manifest of shared items |
+| `/api/one-time-token` | JSON `{ "token": "..." }` for one-time `?token=` access |
+| `/archive` | Multi-file streaming archive when `--single-stream` (`format=zstd` or `tar.gz`, repeat `paths=`) |
+| `/api/upload` | `POST` multipart field `files`; optional `?subdir=` when `--upload` is set |
+| `/webdav/` | WebDAV root when `--webdav` |
+
+Files support query modes such as `?mode=download` (default), `?mode=preview`, `?mode=play`, `?mode=stream` (see UI). Optional `?token=` consumes a one-time token from `/api/one-time-token`.
+
+## API details
 
 ### `/api/files`
+
+The primary JSON API for file listings. This is useful for scripts, tools, and automation.
 
 Returns a JSON response with file listings, totals, and metadata.
 
@@ -370,7 +442,15 @@ curl -s "HOST/api/search?q=part&path=relative/subdir" | jq .
 curl -s "HOST/verify?file=relative/path/file.ext" | jq .
 ```
 
-**Upload:** not implemented yet; see [issue #38](https://github.com/network-plane/shareplane/issues/38) on the roadmap.
+**Upload** (requires `--upload DIR`):
+
+```bash
+curl -s -F "files=@./local.txt" "HOST/api/upload"
+# Optional subfolder under the upload root (must stay inside it):
+curl -s -F "files=@./local.txt" "HOST/api/upload?subdir=incoming"
+```
+
+The HTML listing shows an upload control with progress when `--upload` is set.
 
 When binding to `0.0.0.0`, the server will show output like:
 ```bash
@@ -408,8 +488,11 @@ The server tracks download statistics for each file:
 - Number of times each file was downloaded
 - Total bytes sent for each file
 - Total bytes sent for file listings
+- Per-client full vs partial fetches (see `/api/downloads` and `/api/status`)
 
-Statistics are printed when the server is terminated (Ctrl+C or SIGTERM).
+Use **`shareplane status`** or **`GET /api/status`** (and optional **`GET /stats`** with `--stats`) for live aggregates while the server is running.
+
+Statistics are also printed when the server is terminated (Ctrl+C or SIGTERM), and when using **`--tui`** after you quit the TUI.
 
 ## License
 
