@@ -1576,6 +1576,15 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             fetchFiles(getCurrentPath());
         })();
     </script>
+    <div class="endpoint-links" style="margin-top: 24px; padding: 12px 16px; {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: var(--text);{{end}} border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9em; max-width: 42rem;">
+        <strong>Endpoints</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 1.25rem; line-height: 1.5;">
+            <li><code>GET /</code> — HTML listing (this page)</li>
+            <li><a href="/api/files">/api/files</a> — JSON (<code>?path=relative/dir</code> optional)</li>
+            <li><a href="/api/search?q=">/api/search</a> — search (<code>q</code> required; <code>path</code> scopes to folder)</li>
+            <li><a href="/verify?file=">/verify</a> — JSON SHA1 for a file (<code>file</code> or <code>path</code>)</li>
+        </ul>
+    </div>
     <footer style="margin-top: 30px; padding: 20px; text-align: center; {{if .ColorScheme}}color: {{.ColorScheme.Text}};{{else}}color: var(--muted);{{end}} border-top: 1px solid var(--border-color);">
         <p style="margin: 0;">
             shareplane Version {{.Version}} -

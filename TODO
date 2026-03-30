@@ -8,7 +8,7 @@
 - [x] sort on header label click [#5]
 - [x] total size on all files in the bottom of the table including file count [#6]
 - [x] /api/ endpoint where we only return proper json for use in scripts/tools, example /api/files will print out the output but in a json [#7]
-- [ ] In the bottom before the footer show links to all the supported endpoints [#8]
+- [x] In the bottom before the footer show links to all the supported endpoints [#8]
 - [ ] show each user which files they downloaded in full/partial [#9]
 - [ ] Add ability to preview/review certain file types (e.g., images, text files, PDFs) directly in the browser without downloading [#10]
 - [ ] add a command to show live stats (shareplane status) for when we run this as a service [#11]
