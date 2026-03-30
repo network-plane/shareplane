@@ -57,3 +57,25 @@ func ephemeralTLSConfig() (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 	}, nil
 }
+
+func tlsConfigFromFiles(certFile, keyFile string) (*tls.Config, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load cert/key: %w", err)
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+	}, nil
+}
+
+// tlsConfigForServer returns TLS config for --cert/--key (preferred) or --https ephemeral.
+func tlsConfigForServer() (*tls.Config, error) {
+	if serverCfg.TLSCertFile != "" && serverCfg.TLSKeyFile != "" {
+		return tlsConfigFromFiles(serverCfg.TLSCertFile, serverCfg.TLSKeyFile)
+	}
+	if serverCfg.EphemeralTLS {
+		return ephemeralTLSConfig()
+	}
+	return nil, nil
+}

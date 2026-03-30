@@ -783,14 +783,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 	listenAddress := fmt.Sprintf("%s:%s", ip, port)
 
-	var tlsCfg *tls.Config
-	if serverCfg.EphemeralTLS {
-		var err error
-		tlsCfg, err = ephemeralTLSConfig()
-		if err != nil {
-			outPrintf("TLS: %v\n", err)
-			os.Exit(1)
-		}
+	tlsCfg, err := tlsConfigForServer()
+	if err != nil {
+		outPrintf("TLS: %v\n", err)
+		os.Exit(1)
 	}
 
 	scheme := "http"
@@ -825,7 +821,11 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		outPrintf("Serving on %s://%s\n", scheme, listenAddress)
 	}
 	if tlsCfg != nil {
-		outPrintln("Using ephemeral TLS certificate (self-signed, not saved). Expect browser warnings.")
+		if serverCfg.TLSCertFile != "" {
+			outPrintf("TLS: using certificate file %s and key %s\n", serverCfg.TLSCertFile, serverCfg.TLSKeyFile)
+		} else {
+			outPrintln("Using ephemeral TLS certificate (self-signed, not saved). Expect browser warnings.")
+		}
 	}
 
 	// Create HTTP server for graceful shutdown support

@@ -35,7 +35,7 @@
 - [x] Add a CLI command `shareplane status` to show live stats when running as a service (separate from the TUI) [#33]
 - [ ] Add a TUI with the flag `--tui` that shows the live stats for everything getting downloaded etc (use our package) [#34]
 - [x] Add `--https` with self-signed key/cert (we generate it on the fly, we don't store it) [#35]
-- [ ] Add `--cert`/`--key` flags to allow the usage of a real cert and its key for HTTPS (if they are valid we instantly support HTTPS) [#36]
+- [x] Add `--cert`/`--key` flags to allow the usage of a real cert and its key for HTTPS (if they are valid we instantly support HTTPS) [#36]
 - [x] At the bottom of the output screen add a footer row with "shareplane Version (version here) - link to the github project" [#37]
 - [ ] Readonly upload flag where we set a folder `--upload upload/` and the users see an upload button and they can upload files/folders. We need to show progress to the users [#38]
 - [x] Allow the user to enter nested dirs by default since we allow the first level anyway (URL-encoded paths, relative links, parent `..`) [#39]

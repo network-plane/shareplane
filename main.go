@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.2.6"
+	appVersion     = "1.2.7"
 	port           string
 	ip             string
 	showHidden     bool
@@ -48,6 +48,8 @@ var (
 	singleStream   bool
 	statsPage      bool
 	useHTTPS       bool
+	tlsCertFile    string
+	tlsKeyFile     string
 )
 
 func main() {
@@ -154,6 +156,13 @@ func main() {
 			serverCfg.EnableSingleStream = singleStream
 			serverCfg.EnableStatsPage = statsPage
 			serverCfg.EphemeralTLS = useHTTPS
+			serverCfg.TLSCertFile = tlsCertFile
+			serverCfg.TLSKeyFile = tlsKeyFile
+
+			if (tlsCertFile != "") != (tlsKeyFile != "") {
+				fmt.Fprintf(os.Stderr, "Error: --cert and --key must be set together\n")
+				os.Exit(1)
+			}
 
 			if err := initServerLog(logFilePath); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: cannot open log file: %v\n", err)
@@ -219,6 +228,8 @@ func main() {
 	rootCmd.Flags().BoolVar(&singleStream, "single-stream", false, "Enable GET /archive (zstd or tar.gz) and listing checkboxes for multi-file download")
 	rootCmd.Flags().BoolVar(&statsPage, "stats", false, "Expose GET /stats with the same JSON as /api/status")
 	rootCmd.Flags().BoolVar(&useHTTPS, "https", false, "Serve HTTPS with an ephemeral self-signed certificate (not saved; browser warnings expected)")
+	rootCmd.Flags().StringVar(&tlsCertFile, "cert", "", "Path to TLS certificate (PEM); use with --key (takes precedence over --https)")
+	rootCmd.Flags().StringVar(&tlsKeyFile, "key", "", "Path to TLS private key (PEM); use with --cert")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
