@@ -1,0 +1,30 @@
+# Example systemd unit for shareplane. Copy to /etc/systemd/system/shareplane.service
+# and adjust paths, user, and shared directories.
+#
+#   sudo cp contrib/shareplane.service.example /etc/systemd/system/shareplane.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now shareplane
+#
+# Use shareplane status (or curl /api/status) with SHAREPLANE_URL pointing at
+# the same host:port the unit listens on (default below: 127.0.0.1:8080).
+
+[Unit]
+Description=Shareplane HTTP file server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+# Install the binary where you prefer, e.g. /usr/local/bin/shareplane
+ExecStart=/usr/local/bin/shareplane /srv/share
+WorkingDirectory=/srv/share
+Restart=on-failure
+RestartSec=3
+Environment=PORT=8080
+Environment=IP=127.0.0.1
+Environment=SHAREPLANE_URL=http://127.0.0.1:8080
+
+[Install]
+WantedBy=multi-user.target
