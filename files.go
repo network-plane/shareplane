@@ -81,6 +81,59 @@ func getRealIP(r *http.Request) string {
 	return ip
 }
 
+// copyClientsSnapshot returns a sorted copy of per-client full/partial stats (for JSON APIs).
+func copyClientsSnapshot() []apiDownloadClient {
+	perClientMu.Lock()
+	defer perClientMu.Unlock()
+	ips := make([]string, 0, len(perClientFileStats))
+	for ip := range perClientFileStats {
+		ips = append(ips, ip)
+	}
+	sort.Strings(ips)
+	clients := make([]apiDownloadClient, 0, len(ips))
+	for _, ip := range ips {
+		m := perClientFileStats[ip]
+		paths := make([]string, 0, len(m))
+		for p := range m {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		files := make([]apiDownloadFile, 0, len(paths))
+		for _, p := range paths {
+			st := m[p]
+			files = append(files, apiDownloadFile{Path: p, Full: st.Full, Partial: st.Partial})
+		}
+		clients = append(clients, apiDownloadClient{IP: ip, Files: files})
+	}
+	return clients
+}
+
+func buildAPIStatusResponse() apiStatusResponse {
+	statsMutex.Lock()
+	paths := make([]string, 0, len(downloadStats))
+	for p := range downloadStats {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	files := make([]apiStatusFile, 0, len(paths))
+	var totalDL int64
+	for _, p := range paths {
+		s := downloadStats[p]
+		totalDL += s.Bytes
+		files = append(files, apiStatusFile{Path: p, Count: s.Count, Bytes: s.Bytes})
+	}
+	listing := totalBytesSentForListings
+	statsMutex.Unlock()
+
+	return apiStatusResponse{
+		Version:            getAppVersion(),
+		TotalDownloadBytes: totalDL,
+		TotalListingBytes:  listing,
+		Files:              files,
+		Clients:            copyClientsSnapshot(),
+	}
+}
+
 func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, validatedPath string, mode string) {
 	clientIP := getRealIP(r)
 	isHEAD := r.Method == "HEAD"
@@ -437,30 +490,20 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		perClientMu.Lock()
-		ips := make([]string, 0, len(perClientFileStats))
-		for ip := range perClientFileStats {
-			ips = append(ips, ip)
-		}
-		sort.Strings(ips)
-		clients := make([]apiDownloadClient, 0, len(ips))
-		for _, ip := range ips {
-			m := perClientFileStats[ip]
-			paths := make([]string, 0, len(m))
-			for p := range m {
-				paths = append(paths, p)
-			}
-			sort.Strings(paths)
-			files := make([]apiDownloadFile, 0, len(paths))
-			for _, p := range paths {
-				st := m[p]
-				files = append(files, apiDownloadFile{Path: p, Full: st.Full, Partial: st.Partial})
-			}
-			clients = append(clients, apiDownloadClient{IP: ip, Files: files})
-		}
-		perClientMu.Unlock()
+		clients := copyClientsSnapshot()
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(apiDownloadsResponse{Clients: clients})
+	}, getRealIP))
+
+	// GET /api/status — aggregate download and listing stats (for scripts and shareplane status)
+	http.HandleFunc("/api/status", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(buildAPIStatusResponse())
 	}, getRealIP))
 
 	// GET /verify?file=relative/path — returns JSON with SHA1 for a single shared file
@@ -1697,6 +1740,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             <li><a href="/api/search?q=">/api/search</a> — search (<code>q</code> required; <code>path</code> scopes to folder)</li>
             <li><a href="/verify?file=">/verify</a> — JSON SHA1 for a file (<code>file</code> or <code>path</code>)</li>
             <li><a href="/api/downloads">/api/downloads</a> — JSON: per-client IP, full vs partial fetches per file</li>
+            <li><a href="/api/status">/api/status</a> — JSON: version, totals, per-file and per-client stats</li>
             <li><code>GET /…?mode=preview</code> — inline preview (images, PDF, text, etc.) in the browser</li>
         </ul>
     </div>

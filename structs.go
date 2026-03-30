@@ -83,6 +83,21 @@ type apiDownloadFile struct {
 	Partial int64  `json:"partial"`
 }
 
+// apiStatusResponse is the JSON body for GET /api/status
+type apiStatusResponse struct {
+	Version            string            `json:"version"`
+	TotalDownloadBytes int64             `json:"totalDownloadBytes"`
+	TotalListingBytes  int64             `json:"totalListingBytes"`
+	Files              []apiStatusFile   `json:"files"`
+	Clients            []apiDownloadClient `json:"clients"`
+}
+
+type apiStatusFile struct {
+	Path  string `json:"path"`
+	Count int64  `json:"count"`
+	Bytes int64  `json:"bytes"`
+}
+
 // rateLimiter implements a token bucket rate limiter per IP address
 type rateLimiter struct {
 	requestsPerSecond float64

@@ -11,7 +11,7 @@
 - [x] In the bottom before the footer show links to all the supported endpoints [#8]
 - [x] show each user which files they downloaded in full/partial [#9]
 - [x] Add ability to preview/review certain file types (e.g., images, text files, PDFs) directly in the browser without downloading [#10]
-- [ ] add a command to show live stats (shareplane status) for when we run this as a service [#11]
+- [x] add a command to show live stats (shareplane status) for when we run this as a service [#11]
 - [ ] Make this runnable as a service [#12]
 - [x] add download counters to the output so that after the date we show how many times a file has been downloaded [#14]
 - [x] add verification endpoint, where the user can pass a filename and get the sha1 hash, example /verify?file=filename.ext [#15]

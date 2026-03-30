@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.90"
+	appVersion     = "1.1.91"
 	port           string
 	ip             string
 	showHidden     bool
@@ -33,6 +33,7 @@ var (
 	publicURL      string  // Public base URL for links when behind a reverse proxy (--url)
 	namePrefix     string
 	nameSuffix     string
+	statusURLFlag string // shareplane status --url
 )
 
 func main() {
@@ -146,6 +147,18 @@ func main() {
 	rootCmd.Flags().StringVar(&publicURL, "url", "", "Public base URL for generated links (e.g. https://files.example.com:8443) when behind a reverse proxy; omit scheme to default to http")
 	rootCmd.Flags().StringVar(&namePrefix, "prefix", "", "Optional prefix shown before each filename in listings (display only; URLs unchanged)")
 	rootCmd.Flags().StringVar(&nameSuffix, "suffix", "", "Optional suffix shown after each filename in listings (display only; URLs unchanged)")
+
+	statusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Print live download stats from a running shareplane server",
+		Long:  "Fetches GET /api/status. Use --url or set SHAREPLANE_URL to the server base URL (default http://127.0.0.1:8080).",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runShareplaneStatus(statusURLFlag)
+		},
+	}
+	statusCmd.Flags().StringVar(&statusURLFlag, "url", "", "Base URL of shareplane (default: SHAREPLANE_URL or http://127.0.0.1:8080)")
+	rootCmd.AddCommand(statusCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
