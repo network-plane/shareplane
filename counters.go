@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -59,6 +60,10 @@ func (w *countingWriter) finish() {
 		kind = "partial"
 	}
 	fmt.Printf("Served file %s to %s (%s), sent %d bytes\n", key, w.clientIP, kind, w.bytesWritten)
+	if serverCfg.ByteLimit > 0 {
+		atomic.AddInt64(&globalBytesTransferred, w.bytesWritten)
+	}
+	appendServerEvent("download", w.clientIP, fmt.Sprintf("path=%s kind=%s bytes=%d", key, kind, w.bytesWritten))
 }
 
 // Write method for rateLimitedWriter that throttles writes based on bandwidth limit

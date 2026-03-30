@@ -18,6 +18,7 @@ import (
 	"time"
 
 	proxyproto "github.com/pires/go-proxyproto"
+	"golang.org/x/net/webdav"
 )
 
 // serverPublicBaseURL is set from --url (no trailing slash). Empty means use the HTTP request host for generated links.
@@ -132,6 +133,7 @@ func buildAPIStatusResponse() apiStatusResponse {
 		Files:              files,
 		Clients:            copyClientsSnapshot(),
 		Activity:           copyActivitySnapshot(),
+		Events:             copyServerEventsSnapshot(),
 	}
 }
 
@@ -193,6 +195,23 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		return
 	}
 	fileSize := fileInfo.Size()
+
+	relKey := normalizeStatsPath(getRelativePath(validatedPath, allowedPaths))
+	if !isHEAD {
+		if bytesLimitExceeded() {
+			http.Error(w, "Byte limit for this share has been reached", http.StatusServiceUnavailable)
+			return
+		}
+		if serverCfg.MaxDownloadPerFile > 0 {
+			statsMutex.Lock()
+			n := downloadStats[relKey].Count
+			statsMutex.Unlock()
+			if n >= serverCfg.MaxDownloadPerFile {
+				http.Error(w, "Max download count reached for this file", http.StatusForbidden)
+				return
+			}
+		}
+	}
 
 	// Check if this is a Range request (for resuming downloads or partial fetches)
 	isRangeRequest := r.Header.Get("Range") != ""
@@ -304,7 +323,22 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	}
 
 	// API endpoint for JSON data
-	http.HandleFunc("/api/files", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/events", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		handleEventsJSON(w, r)
+	}))
+
+	http.HandleFunc("/events", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		handleEventsSSE(w, r)
+	}))
+
+	http.HandleFunc("/manifest.json", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		handleManifestJSON(w, r, filePaths, showHidden, hash, maxHashSize)
+	}))
+
+	http.HandleFunc("/api/files", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -416,10 +450,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			listDetail = "path=" + filepath.ToSlash(requestedPath)
 		}
 		recordActivity(ip, "list", listDetail)
-	}, getRealIP))
+	}))
 
 	// API endpoint for searching files/directories by name
-	http.HandleFunc("/api/search", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/search", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -501,10 +535,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			searchDetail += fmt.Sprintf(" scope=%q", filepath.ToSlash(requestedPath))
 		}
 		recordActivity(getRealIP(r), "search", searchDetail)
-	}, getRealIP))
+	}))
 
 	// GET /api/downloads — per-client IP: which files were fetched in full vs partial (Range/incomplete)
-	http.HandleFunc("/api/downloads", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/downloads", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -513,10 +547,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		clients := copyClientsSnapshot()
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(apiDownloadsResponse{Clients: clients})
-	}, getRealIP))
+	}))
 
 	// GET /api/status — aggregate download and listing stats (for scripts and shareplane status)
-	http.HandleFunc("/api/status", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/status", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -524,10 +558,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(buildAPIStatusResponse())
-	}, getRealIP))
+	}))
 
 	// GET /verify?file=relative/path — returns JSON with SHA1 for a single shared file
-	http.HandleFunc("/verify", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/verify", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -566,9 +600,9 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			SHA1 string `json:"sha1"`
 			Path string `json:"path"`
 		}{SHA1: hash, Path: rel})
-	}, getRealIP))
+	}))
 
-	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.URL.Path != "/" {
 			// Strip the leading slash and validate path
@@ -603,7 +637,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				if r.Method == http.MethodGet {
 					recordActivity(getRealIP(r), "browse", "path=/"+filepath.ToSlash(requestedPath))
 				}
-				renderClientApp(w, hash, colorScheme, getAppVersion())
+				renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR)
 				return
 			}
 			// It's a file, serve it normally (validatedPath is already validated)
@@ -622,8 +656,8 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		if r.Method == http.MethodGet {
 			recordActivity(getRealIP(r), "browse", "path=/")
 		}
-		renderClientApp(w, hash, colorScheme, getAppVersion())
-	}, getRealIP))
+		renderClientApp(w, hash, colorScheme, getAppVersion(), serverCfg.EnableQR)
+	}))
 
 	// Start file watcher if reload is enabled
 	if enableReload {
@@ -679,6 +713,43 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 	httpServerMu.Lock()
 	httpServer = server
 	httpServerMu.Unlock()
+
+	if serverCfg.EnableWebDAV {
+		rootDav := allowedPaths[0]
+		if len(allowedPaths) > 1 {
+			fmt.Println("Note: --webdav exports only the first shared path as WebDAV root.")
+		}
+		wdh := &webdav.Handler{
+			FileSystem: webdav.Dir(rootDav),
+			LockSystem: webdav.NewMemLS(),
+		}
+		http.Handle("/webdav/", wrapHandler(func(w http.ResponseWriter, r *http.Request) {
+			updateLastActivity()
+			http.StripPrefix("/webdav", wdh).ServeHTTP(w, r)
+		}))
+		fmt.Printf("WebDAV enabled at /webdav/ (root: %s)\n", rootDav)
+	}
+
+	if !serverCfg.TTLDeadline.IsZero() {
+		d := time.Until(serverCfg.TTLDeadline)
+		if d > 0 {
+			fmt.Printf("Share TTL: server stops after %v (at %s UTC)\n", d, serverCfg.TTLDeadline.UTC().Format(time.RFC3339))
+			go func() {
+				time.Sleep(d)
+				fmt.Println("Share TTL expired; shutting down...")
+				httpServerMu.RLock()
+				srv := httpServer
+				httpServerMu.RUnlock()
+				if srv != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_ = srv.Shutdown(ctx)
+					cancel()
+				}
+				printStats()
+				os.Exit(0)
+			}()
+		}
+	}
 
 	// Start server with optional PROXY protocol parsing.
 	// This allows real client IPs behind FRP TCP proxies (proxyProtocolVersion=v2)
@@ -962,6 +1033,8 @@ func formatSize(size int64) string {
 type templateData struct {
 	Files           []FileInfo
 	ShowHash        bool
+	ShowQR          bool
+	WebDAVEnabled   bool
 	ColorScheme     *colorScheme
 	UseDefaultTheme bool
 	TotalSize       int64
@@ -996,8 +1069,34 @@ func decorateFileDisplay(f *FileInfo) {
 	f.PrettyName = serverNamePrefix + f.DisplayName + serverNameSuffix
 }
 
+func handleManifestJSON(w http.ResponseWriter, r *http.Request, filePaths []string, showHidden, hash bool, maxHashSize int64) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	files, err := listFiles(filePaths, showHidden, hash, maxHashSize)
+	if err != nil {
+		http.Error(w, "Failed to list files", http.StatusInternalServerError)
+		return
+	}
+	for i := range files {
+		decorateFileDisplay(&files[i])
+	}
+	out := struct {
+		Version     string     `json:"version"`
+		GeneratedAt time.Time  `json:"generatedAt"`
+		Files       []FileInfo `json:"files"`
+	}{
+		Version:     getAppVersion(),
+		GeneratedAt: time.Now().UTC(),
+		Files:       files,
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 // renderClientApp renders the client-side HTML application that fetches data from the API
-func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string) {
+func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorScheme, version string, showQR bool) {
 	cw := &countingWriter{ResponseWriter: w}
 	tmpl := template.Must(template.New("clientApp").Funcs(template.FuncMap{
 		"formatSize": formatSize,
@@ -1170,9 +1269,25 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             text-decoration: none;
             background: var(--row-hover);
         }
+        {{if .ShowQR}}
+        #qrModalOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center; }
+        #qrModalOverlay.qr-visible { display: flex; }
+        #qrModalBox { background: var(--table-bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); text-align: center; }
+        {{end}}
     </style>
+    {{if .ShowQR}}
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    {{end}}
 </head>
 <body>
+    {{if .ShowQR}}
+    <div id="qrModalOverlay" aria-hidden="true">
+        <div id="qrModalBox">
+            <canvas id="qrCanvas" width="200" height="200"></canvas>
+            <div style="margin-top: 10px;"><button type="button" id="qrModalClose" class="theme-toggle">Close</button></div>
+        </div>
+    </div>
+    {{end}}
     <h1>Files</h1>
     <div style="margin-bottom: 14px;">
         <input id="searchInput" type="search" autocomplete="off" placeholder="Search in this folder…" style="width: 100%; max-width: 42rem; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--table-bg); color: var(--text); font-family: monospace;">
@@ -1206,6 +1321,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             let currentSort = { column: null, direction: 'asc' };
             let showHash = false;
             const publicBase = {{if .PublicBaseURL}}{{printf "%q" .PublicBaseURL}}{{else}}""{{end}};
+            const showQR = {{if .ShowQR}}true{{else}}false{{end}};
             let activeSearchQuery = '';
             let searchDebounceTimer = null;
             let pendingSearchAbort = null;
@@ -1253,6 +1369,30 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     'html', 'htm', 'css', 'js', 'c', 'h', 'go', 'rs', 'py', 'sh', 'java', 'ts', 'tsx', 'jsx'
                 ]);
                 return previewExtensions.has(ext);
+            }
+
+            function showQrModalForUrl(text) {
+                if (!showQR || typeof QRCode === 'undefined') return;
+                const overlay = document.getElementById('qrModalOverlay');
+                const canvas = document.getElementById('qrCanvas');
+                if (!overlay || !canvas) return;
+                QRCode.toCanvas(canvas, text, { width: 200, margin: 1 }, function(err) {
+                    if (err) {
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = 'QR error: ' + err;
+                        return;
+                    }
+                    overlay.classList.add('qr-visible');
+                    overlay.setAttribute('aria-hidden', 'false');
+                });
+            }
+
+            function hideQrModal() {
+                const overlay = document.getElementById('qrModalOverlay');
+                if (overlay) {
+                    overlay.classList.remove('qr-visible');
+                    overlay.setAttribute('aria-hidden', 'true');
+                }
             }
 
             function showStreamUrl(url) {
@@ -1512,6 +1652,20 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         downloadIcon.title = 'Download';
                         actions.appendChild(downloadIcon);
 
+                        if (showQR) {
+                            const qrBtn = document.createElement('button');
+                            qrBtn.type = 'button';
+                            qrBtn.className = 'action-icon';
+                            qrBtn.textContent = '▦';
+                            qrBtn.title = 'QR code for download link';
+                            qrBtn.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                const abs = (publicBase || window.location.origin) + downloadUrl;
+                                showQrModalForUrl(abs);
+                            });
+                            actions.appendChild(qrBtn);
+                        }
+
                         if (previewFile) {
                             const previewIcon = document.createElement('a');
                             previewIcon.className = 'action-icon';
@@ -1739,6 +1893,19 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     themeToggle.addEventListener('click', toggleTheme);
                 }
 
+                const qrClose = document.getElementById('qrModalClose');
+                const qrOverlay = document.getElementById('qrModalOverlay');
+                if (qrClose) {
+                    qrClose.addEventListener('click', hideQrModal);
+                }
+                if (qrOverlay) {
+                    qrOverlay.addEventListener('click', function(e) {
+                        if (e.target === qrOverlay) {
+                            hideQrModal();
+                        }
+                    });
+                }
+
                 if (searchInput) {
                     searchInput.addEventListener('input', onSearchInput);
                     searchInput.addEventListener('keydown', function(e) {
@@ -1767,6 +1934,9 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             <li><a href="/verify?file=">/verify</a> — JSON SHA1 for a file (<code>file</code> or <code>path</code>)</li>
             <li><a href="/api/downloads">/api/downloads</a> — JSON: per-client IP, full vs partial fetches per file</li>
             <li><a href="/api/status">/api/status</a> — JSON: version, totals, per-file and per-client stats</li>
+            <li><a href="/api/events">/api/events</a> — JSON event log; <a href="/events">/events</a> — SSE stream</li>
+            <li><a href="/manifest.json">/manifest.json</a> — shared files metadata (JSON)</li>
+            {{if .WebDAVEnabled}}<li><code>WebDAV</code> — <code>/webdav/</code> (same auth as HTTP)</li>{{end}}
             <li><code>GET /…?mode=preview</code> — inline preview (images, PDF, text, etc.) in the browser</li>
         </ul>
     </div>
@@ -1791,6 +1961,8 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 
 	data := templateData{
 		ShowHash:        showHash,
+		ShowQR:          showQR,
+		WebDAVEnabled:   serverCfg.EnableWebDAV,
 		ColorScheme:     colorScheme,
 		UseDefaultTheme: colorScheme == nil,
 		Version:         version,

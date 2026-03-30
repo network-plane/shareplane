@@ -59,5 +59,13 @@ func runShareplaneStatus(base string) error {
 			fmt.Printf("  %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ev.IP, ev.Kind, ev.Detail)
 		}
 	}
+	if len(data.Events) == 0 {
+		fmt.Println("Event log: (none)")
+	} else {
+		fmt.Println("Event log (newest first):")
+		for _, ev := range data.Events {
+			fmt.Printf("  %s [%s] %s — %s\n", ev.Time.Format(time.RFC3339), ev.Type, ev.IP, ev.Detail)
+		}
+	}
 	return nil
 }

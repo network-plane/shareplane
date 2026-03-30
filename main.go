@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.93"
+	appVersion     = "1.2.3"
 	port           string
 	ip             string
 	showHidden     bool
@@ -34,6 +34,15 @@ var (
 	namePrefix     string
 	nameSuffix     string
 	statusURLFlag  string // shareplane status --url
+	shareTTL       string
+	byteLimitTotal string
+	maxDlCount     int64
+	whitelistIPs   string
+	blacklistIPs   string
+	basicUser      string
+	basicPassword  string
+	enableQR       bool
+	enableWebDAV   bool
 )
 
 func main() {
@@ -127,6 +136,40 @@ func main() {
 				os.Exit(1)
 			}
 
+			serverCfg.TTLDeadline = time.Time{}
+			serverCfg.ByteLimit = 0
+			serverCfg.MaxDownloadPerFile = 0
+			serverCfg.WhitelistIPs = nil
+			serverCfg.BlacklistIPs = nil
+			serverCfg.BasicUser = ""
+			serverCfg.BasicPass = ""
+			serverCfg.EnableQR = enableQR
+			serverCfg.EnableWebDAV = enableWebDAV
+
+			if shareTTL != "" {
+				parsed, err := parseShareTTL(shareTTL)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid --ttl %q: %v\n", shareTTL, err)
+					os.Exit(1)
+				}
+				serverCfg.TTLDeadline = time.Now().Add(parsed)
+			}
+			if byteLimitTotal != "" {
+				parsed, err := parseTotalByteLimit(byteLimitTotal)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid --byte-limit %q: %v\n", byteLimitTotal, err)
+					os.Exit(1)
+				}
+				serverCfg.ByteLimit = parsed
+			}
+			if maxDlCount > 0 {
+				serverCfg.MaxDownloadPerFile = maxDlCount
+			}
+			serverCfg.WhitelistIPs = parseCommaIPs(whitelistIPs)
+			serverCfg.BlacklistIPs = parseCommaIPs(blacklistIPs)
+			serverCfg.BasicUser = basicUser
+			serverCfg.BasicPass = basicPassword
+
 			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL, namePrefix, nameSuffix)
 		},
 	}
@@ -147,6 +190,15 @@ func main() {
 	rootCmd.Flags().StringVar(&publicURL, "url", "", "Public base URL for generated links (e.g. https://files.example.com:8443) when behind a reverse proxy; omit scheme to default to http")
 	rootCmd.Flags().StringVar(&namePrefix, "prefix", "", "Optional prefix shown before each filename in listings (display only; URLs unchanged)")
 	rootCmd.Flags().StringVar(&nameSuffix, "suffix", "", "Optional suffix shown after each filename in listings (display only; URLs unchanged)")
+	rootCmd.Flags().StringVar(&shareTTL, "ttl", "", "Stop sharing after this duration from launch (plain number = minutes; or units: m, minutes, h, hours, d, days, w, weeks, mo). No persistence.")
+	rootCmd.Flags().StringVar(&byteLimitTotal, "byte-limit", "", "Stop serving after this many total bytes transferred (same units as --bw-limit; no limit if unset)")
+	rootCmd.Flags().Int64Var(&maxDlCount, "max-count", 0, "Maximum completed downloads per file (0 = unlimited)")
+	rootCmd.Flags().StringVar(&whitelistIPs, "whitelist", "", "Comma-separated client IPs or CIDRs allowed (uses proxy-aware IP; empty = allow all)")
+	rootCmd.Flags().StringVar(&blacklistIPs, "blacklist", "", "Comma-separated client IPs or CIDRs denied (uses proxy-aware IP)")
+	rootCmd.Flags().StringVar(&basicUser, "basic-user", "", "HTTP Basic auth username (optional; empty = omit username check)")
+	rootCmd.Flags().StringVar(&basicPassword, "basic-password", "", "HTTP Basic auth password (optional; empty = omit password check)")
+	rootCmd.Flags().BoolVar(&enableQR, "qr", false, "Show QR code buttons for direct download links in the listing")
+	rootCmd.Flags().BoolVar(&enableWebDAV, "webdav", false, "Serve WebDAV at /webdav/ (first shared path only)")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
@@ -274,6 +326,46 @@ func parseIdleTimeout(timeout string) (time.Duration, error) {
 	}
 
 	return time.Duration(value * float64(multiplier)), nil
+}
+
+// parseShareTTL parses --ttl: plain number = minutes; or 10M, 1H, 3D, 12Weeks, 1mo, etc.
+func parseShareTTL(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return time.Duration(v * float64(time.Minute)), nil
+	}
+	re := regexp.MustCompile(`(?i)^([\d.]+)\s*(weeks|minutes|hours|days|mo|[mhdw])$`)
+	matches := re.FindStringSubmatch(s)
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid TTL; use e.g. 30, 10m, 1H, 3D, 12Weeks")
+	}
+	val, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0, err
+	}
+	u := strings.ToLower(matches[2])
+	switch u {
+	case "m", "minutes":
+		return time.Duration(val * float64(time.Minute)), nil
+	case "h", "hours":
+		return time.Duration(val * float64(time.Hour)), nil
+	case "d", "days":
+		return time.Duration(val * 24 * float64(time.Hour)), nil
+	case "w", "week", "weeks":
+		return time.Duration(val * 7 * 24 * float64(time.Hour)), nil
+	case "mo":
+		return time.Duration(val * 30 * 24 * float64(time.Hour)), nil
+	default:
+		return 0, fmt.Errorf("unknown unit %q", u)
+	}
+}
+
+// parseTotalByteLimit parses total byte cap (same units as --bw-limit).
+func parseTotalByteLimit(s string) (int64, error) {
+	return parseBandwidthLimit(s)
 }
 
 // normalizePublicURL validates --url and returns a base URL without a trailing slash (or empty).

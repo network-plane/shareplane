@@ -31,6 +31,7 @@ func recordActivity(ip, kind, detail string) {
 	activityMu.Unlock()
 
 	fmt.Printf("[activity] %s %s — %s — %s\n", ev.Time.Format(time.RFC3339), ip, kind, detail)
+	appendServerEvent(kind, ip, detail)
 }
 
 func copyActivitySnapshot() []activityEvent {

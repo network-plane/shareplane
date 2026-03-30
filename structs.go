@@ -91,6 +91,7 @@ type apiStatusResponse struct {
 	Files              []apiStatusFile     `json:"files"`
 	Clients            []apiDownloadClient `json:"clients"`
 	Activity           []activityEvent     `json:"activity"`
+	Events             []ServerEvent       `json:"events"`
 }
 
 type apiStatusFile struct {
