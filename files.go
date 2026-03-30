@@ -130,15 +130,6 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		}
 	}
 
-	// Only wrap with countingWriter if not HEAD (HEAD requests don't send body, so no need to count)
-	var cw *countingWriter
-	if !isHEAD {
-		// Use relative path for logging to avoid leaking full paths
-		relPath := getRelativePath(validatedPath, allowedPaths)
-		cw = &countingWriter{ResponseWriter: finalWriter, path: relPath, clientIP: clientIP}
-		finalWriter = cw
-	}
-
 	// Determine the file size
 	fileInfo, err := os.Stat(validatedPath)
 	if err != nil {
@@ -149,6 +140,21 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 
 	// Check if this is a Range request (for resuming downloads or partial fetches)
 	isRangeRequest := r.Header.Get("Range") != ""
+
+	// Only wrap with countingWriter if not HEAD (HEAD requests don't send body, so no need to count)
+	var cw *countingWriter
+	if !isHEAD {
+		// Use relative path for logging to avoid leaking full paths
+		relPath := getRelativePath(validatedPath, allowedPaths)
+		cw = &countingWriter{
+			ResponseWriter: finalWriter,
+			path:             relPath,
+			clientIP:         clientIP,
+			isRangeRequest:   isRangeRequest,
+			fileSize:         fileSize,
+		}
+		finalWriter = cw
+	}
 
 	// http.ServeFile automatically handles HTTP Range requests (206 Partial Content)
 	// and HEAD requests (returns headers only, no body)
@@ -420,6 +426,39 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
 		}
+	}, getRealIP))
+
+	// GET /api/downloads — per-client IP: which files were fetched in full vs partial (Range/incomplete)
+	http.HandleFunc("/api/downloads", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		perClientMu.Lock()
+		ips := make([]string, 0, len(perClientFileStats))
+		for ip := range perClientFileStats {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		clients := make([]apiDownloadClient, 0, len(ips))
+		for _, ip := range ips {
+			m := perClientFileStats[ip]
+			paths := make([]string, 0, len(m))
+			for p := range m {
+				paths = append(paths, p)
+			}
+			sort.Strings(paths)
+			files := make([]apiDownloadFile, 0, len(paths))
+			for _, p := range paths {
+				st := m[p]
+				files = append(files, apiDownloadFile{Path: p, Full: st.Full, Partial: st.Partial})
+			}
+			clients = append(clients, apiDownloadClient{IP: ip, Files: files})
+		}
+		perClientMu.Unlock()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(apiDownloadsResponse{Clients: clients})
 	}, getRealIP))
 
 	// GET /verify?file=relative/path — returns JSON with SHA1 for a single shared file

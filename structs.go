@@ -11,19 +11,31 @@ type downloadStatsItem struct {
 	Count int64
 }
 
+// clientFileStat tracks full vs partial fetches per client IP and file path (relative key).
+type clientFileStat struct {
+	Full    int64 `json:"full"`
+	Partial int64 `json:"partial"`
+}
+
 var (
 	// Use a map to track downloads, with each file's path as the key
 	downloadStats             = make(map[string]downloadStatsItem)
 	totalBytesSentForListings int64
 	statsMutex                sync.Mutex
+
+	// perClientFileStats maps client IP -> relative path -> full vs partial counts
+	perClientFileStats = make(map[string]map[string]clientFileStat)
+	perClientMu        sync.Mutex
 )
 
 // Adjust countingWriter to immediately print download progress for each file
 type countingWriter struct {
 	http.ResponseWriter
-	bytesWritten int64  // Track the number of bytes written
-	path         string // The path of the file being served
-	clientIP     string // The real client IP address
+	bytesWritten   int64  // Track the number of bytes written
+	path           string // The path of the file being served
+	clientIP       string // The real client IP address
+	isRangeRequest bool   // True if client sent Range header
+	fileSize       int64  // Total file size (for full vs partial)
 }
 
 // rateLimitedWriter wraps a ResponseWriter and limits the write speed
@@ -53,6 +65,22 @@ type apiResponse struct {
 	TotalSize int64      `json:"totalSize"`
 	FileCount int        `json:"fileCount"`
 	ShowHash  bool       `json:"showHash"`
+}
+
+// apiDownloadsResponse is the JSON body for GET /api/downloads
+type apiDownloadsResponse struct {
+	Clients []apiDownloadClient `json:"clients"`
+}
+
+type apiDownloadClient struct {
+	IP    string            `json:"ip"`
+	Files []apiDownloadFile `json:"files"`
+}
+
+type apiDownloadFile struct {
+	Path    string `json:"path"`
+	Full    int64  `json:"full"`
+	Partial int64  `json:"partial"`
 }
 
 // rateLimiter implements a token bucket rate limiter per IP address

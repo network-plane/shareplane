@@ -40,7 +40,25 @@ func (w *countingWriter) finish() {
 	stats.Count++
 	downloadStats[key] = stats
 
-	fmt.Printf("Served file %s to %s, sent %d bytes\n", key, w.clientIP, w.bytesWritten)
+	partial := w.isRangeRequest || w.bytesWritten < w.fileSize
+	perClientMu.Lock()
+	if _, ok := perClientFileStats[w.clientIP]; !ok {
+		perClientFileStats[w.clientIP] = make(map[string]clientFileStat)
+	}
+	cf := perClientFileStats[w.clientIP][key]
+	if partial {
+		cf.Partial++
+	} else {
+		cf.Full++
+	}
+	perClientFileStats[w.clientIP][key] = cf
+	perClientMu.Unlock()
+
+	kind := "full"
+	if partial {
+		kind = "partial"
+	}
+	fmt.Printf("Served file %s to %s (%s), sent %d bytes\n", key, w.clientIP, kind, w.bytesWritten)
 }
 
 // Write method for rateLimitedWriter that throttles writes based on bandwidth limit
