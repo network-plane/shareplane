@@ -23,7 +23,7 @@
 - [ ] Add `--qr` flag that will show a tooltip/popup with a QR code for the direct download link to each file, allowing mobile devices to easily access files by scanning the QR code [#21]
 - [ ] add --encrypt which accepts a password and all files are only served as password protected zstd files [#22]
 - [ ] Single-use share tokens - implement a system where files can be accessed only once per token. Design discussion needed for implementation approach (token generation, storage, validation) [#23]
-- [ ] Add curl examples for both download and upload operations in the documentation [#24]
+- [x] Add curl examples for both download and upload operations in the documentation [#24]
 - [ ] Add `--TTL` flag that accepts time (default is minutes but if a unit is added we use that), example: `10M`, `1H`, `3D`, `12Weeks`. We only count till launch, no storage of time, so if the client dies we reset [#25]
 - [ ] Add `--byte-limit` that stops sharing data after this limit. It accepts bytes by default, otherwise the same units as the `--limit` flag [#26]
 - [ ] Add `--max-count` that will limit each file to that count of downloads. Example: `--max-count 2` will allow each file to be downloaded twice. We do not remove the count if the file is not downloaded yet [#27]

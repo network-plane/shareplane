@@ -312,6 +312,56 @@ for file in $FILES; do
 done
 ```
 
+### curl examples (download and API)
+
+Replace `HOST` with your server (e.g. `http://127.0.0.1:8080` or your public URL).
+
+**Download a file** (save with remote filename):
+
+```bash
+curl -OJ "HOST/path/to/file.ext"
+```
+
+**Download to a specific local path:**
+
+```bash
+curl -o "local-name.ext" "HOST/path/to/file.ext"
+```
+
+**Resume / partial download** (Range is supported):
+
+```bash
+curl -C - -o "file.ext" "HOST/path/to/file.ext"
+```
+
+**Probe with HEAD** (no body):
+
+```bash
+curl -I "HOST/path/to/file.ext"
+```
+
+**JSON file listing:**
+
+```bash
+curl -s "HOST/api/files" | jq .
+curl -s "HOST/api/files?path=relative/subdir" | jq .
+```
+
+**Search under a folder:**
+
+```bash
+curl -s "HOST/api/search?q=part" | jq .
+curl -s "HOST/api/search?q=part&path=relative/subdir" | jq .
+```
+
+**SHA1 for a file** (`path` is relative to the share roots):
+
+```bash
+curl -s "HOST/verify?file=relative/path/file.ext" | jq .
+```
+
+**Upload:** not implemented yet; see [issue #38](https://github.com/network-plane/shareplane/issues/38) on the roadmap.
+
 When binding to `0.0.0.0`, the server will show output like:
 ```bash
 Serving on http://0.0.0.0:8080
