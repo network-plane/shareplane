@@ -13,7 +13,7 @@
 - [ ] Add ability to preview/review certain file types (e.g., images, text files, PDFs) directly in the browser without downloading [#10]
 - [ ] add a command to show live stats (shareplane status) for when we run this as a service [#11]
 - [ ] Make this runnable as a service [#12]
-- [ ] add download counters to the output so that after the date we show how many times a file has been downloaded [#14]
+- [x] add download counters to the output so that after the date we show how many times a file has been downloaded [#14]
 - [x] add verification endpoint, where the user can pass a filename and get the sha1 hash, example /verify?file=filename.ext [#15]
 - [x] Add flag `--prefix` and `--suffix` that adds a prefix and suffix to the filenames [#16]
 - [ ] add /events endpoint with all the events that happen to use from a dashboard or read from a script [#17]

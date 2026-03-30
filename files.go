@@ -326,6 +326,9 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 		for i := range displayFiles {
 			decorateFileDisplay(&displayFiles[i])
+			if !displayFiles[i].IsDir {
+				displayFiles[i].DownloadCount = lookupDownloadCount(displayFiles[i].DisplayName)
+			}
 		}
 		
 		// Return JSON response
@@ -400,6 +403,9 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 		for i := range filesInfo {
 			decorateFileDisplay(&filesInfo[i])
+			if !filesInfo[i].IsDir {
+				filesInfo[i].DownloadCount = lookupDownloadCount(filesInfo[i].DisplayName)
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1439,7 +1445,11 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     const modCell = document.createElement('td');
                     const modDate = new Date(file.modTime);
                     modCell.setAttribute('data-sort-value', Math.floor(modDate.getTime() / 1000));
-                    modCell.textContent = formatDate(file.modTime);
+                    let modText = formatDate(file.modTime);
+                    if (!file.isDir && typeof file.downloadCount === 'number') {
+                        modText += ' · ' + file.downloadCount + '×';
+                    }
+                    modCell.textContent = modText;
                     row.appendChild(modCell);
                     
                     tableBody.appendChild(row);

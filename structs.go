@@ -44,6 +44,7 @@ type FileInfo struct {
 	ModTime     time.Time `json:"modTime"`      // Modification time
 	Hash        string    `json:"hash"`         // SHA1 hash (empty if not calculated)
 	IsDir       bool      `json:"isDir"`        // Whether this is a directory
+	DownloadCount int64   `json:"downloadCount"` // Times this file was served (GET body); 0 if never
 }
 
 // apiResponse represents the JSON response from /api/files

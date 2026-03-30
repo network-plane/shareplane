@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -12,17 +14,33 @@ func (w *countingWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
+// normalizeStatsPath makes map keys consistent with API display paths (slash-separated).
+func normalizeStatsPath(p string) string {
+	return filepath.ToSlash(strings.TrimSpace(p))
+}
+
+func lookupDownloadCount(displayPath string) int64 {
+	statsMutex.Lock()
+	defer statsMutex.Unlock()
+	key := normalizeStatsPath(displayPath)
+	if s, ok := downloadStats[key]; ok {
+		return s.Count
+	}
+	return 0
+}
+
 // Called after serving a file to update global stats and print download progress
 func (w *countingWriter) finish() {
 	statsMutex.Lock()
 	defer statsMutex.Unlock()
 
-	stats := downloadStats[w.path]
+	key := normalizeStatsPath(w.path)
+	stats := downloadStats[key]
 	stats.Bytes += w.bytesWritten
 	stats.Count++
-	downloadStats[w.path] = stats
+	downloadStats[key] = stats
 
-	fmt.Printf("Served file %s to %s, sent %d bytes\n", w.path, w.clientIP, w.bytesWritten)
+	fmt.Printf("Served file %s to %s, sent %d bytes\n", key, w.clientIP, w.bytesWritten)
 }
 
 // Write method for rateLimitedWriter that throttles writes based on bandwidth limit
