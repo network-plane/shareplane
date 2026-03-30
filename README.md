@@ -65,6 +65,11 @@ Serve multiple files and directories:
   ./shareplane --url https://files.example.com:8443 /path/to/share
   ```
 
+- `--prefix` / `--suffix`: Optional strings shown before/after each name in the HTML/API listing only (download URLs and paths are unchanged).
+  ```bash
+  ./shareplane --prefix "[" --suffix "]" /path/to/share
+  ```
+
 - `--ip`: IP address to bind to (default: `0.0.0.0` - all interfaces)
   ```bash
   ./shareplane --ip 127.0.0.1 file.txt

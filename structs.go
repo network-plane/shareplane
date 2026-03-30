@@ -39,6 +39,7 @@ type rateLimitedWriter struct {
 type FileInfo struct {
 	Name        string    `json:"name"`         // Full absolute path (internal use only)
 	DisplayName string    `json:"displayName"`  // Relative path for display (safe to show)
+	PrettyName  string    `json:"prettyName,omitempty"` // Label with --prefix/--suffix; empty means use displayName in UI
 	Size        int64     `json:"size"`         // File size in bytes
 	ModTime     time.Time `json:"modTime"`      // Modification time
 	Hash        string    `json:"hash"`         // SHA1 hash (empty if not calculated)

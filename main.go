@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.86"
+	appVersion     = "1.1.87"
 	port           string
 	ip             string
 	showHidden     bool
@@ -31,6 +31,8 @@ var (
 	reload         bool
 	idle           string  // Idle timeout (empty = disabled, "15m" = default when flag is set)
 	publicURL      string  // Public base URL for links when behind a reverse proxy (--url)
+	namePrefix     string
+	nameSuffix     string
 )
 
 func main() {
@@ -124,7 +126,7 @@ func main() {
 				os.Exit(1)
 			}
 			
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL)
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL, namePrefix, nameSuffix)
 		},
 	}
 
@@ -142,6 +144,8 @@ func main() {
 	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
 	rootCmd.Flags().StringVar(&idle, "idle", "", "Idle timeout: server shuts down after this period of inactivity. Default: 15m if flag is set without value. Supports units: M (minutes), H (hours), D (days), W (weeks), Mo (months). Examples: 15m, 1H, 4D, 1W, 1Mo")
 	rootCmd.Flags().StringVar(&publicURL, "url", "", "Public base URL for generated links (e.g. https://files.example.com:8443) when behind a reverse proxy; omit scheme to default to http")
+	rootCmd.Flags().StringVar(&namePrefix, "prefix", "", "Optional prefix shown before each filename in listings (display only; URLs unchanged)")
+	rootCmd.Flags().StringVar(&nameSuffix, "suffix", "", "Optional suffix shown after each filename in listings (display only; URLs unchanged)")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

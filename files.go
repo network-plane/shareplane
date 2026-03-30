@@ -23,6 +23,9 @@ import (
 // serverPublicBaseURL is set from --url (no trailing slash). Empty means use the HTTP request host for generated links.
 var serverPublicBaseURL string
 
+// serverNamePrefix and serverNameSuffix are set from --prefix / --suffix (display labels only; URLs still use displayName).
+var serverNamePrefix, serverNameSuffix string
+
 // getRealIP extracts the real client IP from the request, handling proxy headers
 // Checks headers in order: X-Forwarded-For, X-Real-IP, X-Forwarded, CF-Connecting-IP
 // Falls back to RemoteAddr if no proxy headers are present
@@ -174,8 +177,10 @@ func updateLastActivity() {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string, namePrefix string, nameSuffix string) {
 	serverPublicBaseURL = publicBaseURL
+	serverNamePrefix = namePrefix
+	serverNameSuffix = nameSuffix
 	// Initialize allowed paths for security validation
 	if err := initAllowedPaths(filePaths); err != nil {
 		fmt.Printf("Error initializing allowed paths: %v\n", err)
@@ -318,6 +323,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				}
 			}
 		}
+
+		for i := range displayFiles {
+			decorateFileDisplay(&displayFiles[i])
+		}
 		
 		// Return JSON response
 		w.Header().Set("Content-Type", "application/json")
@@ -387,6 +396,10 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				totalSize += f.Size
 				fileCount++
 			}
+		}
+
+		for i := range filesInfo {
+			decorateFileDisplay(&filesInfo[i])
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -852,6 +865,19 @@ func setAppVersion(version string) {
 // getAppVersion returns the application version
 func getAppVersion() string {
 	return globalAppVersion
+}
+
+func decorateFileDisplay(f *FileInfo) {
+	if serverNamePrefix == "" && serverNameSuffix == "" {
+		f.PrettyName = ""
+		return
+	}
+	if f.IsDir {
+		base := strings.TrimSuffix(f.DisplayName, "/")
+		f.PrettyName = serverNamePrefix + base + serverNameSuffix + "/"
+		return
+	}
+	f.PrettyName = serverNamePrefix + f.DisplayName + serverNameSuffix
 }
 
 // renderClientApp renders the client-side HTML application that fetches data from the API
@@ -1325,7 +1351,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     if (file.isDir) {
                         const encodedPath = encodePath(targetPath);
                         link.href = '/' + encodedPath;
-                        link.textContent = file.displayName + '/';
+                        link.textContent = file.prettyName ? file.prettyName : (file.displayName + '/');
                         // Prevent default navigation, fetch directory contents instead
                         link.addEventListener('click', function(e) {
                             e.preventDefault();
@@ -1387,7 +1413,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 
                         nameCell.appendChild(actions);
                         link.href = downloadUrl;
-                        link.textContent = file.displayName;
+                        link.textContent = file.prettyName || file.displayName;
                     }
                     nameCell.setAttribute('data-sort-value', file.displayName);
                     nameCell.appendChild(link);
