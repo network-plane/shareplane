@@ -393,6 +393,48 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			return
 		}
 	}, getRealIP))
+
+	// GET /verify?file=relative/path — returns JSON with SHA1 for a single shared file
+	http.HandleFunc("/verify", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		updateLastActivity()
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		q := strings.TrimSpace(r.URL.Query().Get("file"))
+		if q == "" {
+			q = strings.TrimSpace(r.URL.Query().Get("path"))
+		}
+		if q == "" {
+			http.Error(w, "Missing file or path query parameter", http.StatusBadRequest)
+			return
+		}
+		validatedPath, allowed := isPathAllowed(q)
+		if !allowed {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		info, err := os.Stat(validatedPath)
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		if info.IsDir() {
+			http.Error(w, "Path is a directory, not a file", http.StatusBadRequest)
+			return
+		}
+		hash, err := calculateSHA1(validatedPath)
+		if err != nil {
+			http.Error(w, "Failed to read file", http.StatusInternalServerError)
+			return
+		}
+		rel := getRelativePath(validatedPath, allowedPaths)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(struct {
+			SHA1 string `json:"sha1"`
+			Path string `json:"path"`
+		}{SHA1: hash, Path: rel})
+	}, getRealIP))
 	
 	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
