@@ -20,6 +20,9 @@ import (
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
+// serverPublicBaseURL is set from --url (no trailing slash). Empty means use the HTTP request host for generated links.
+var serverPublicBaseURL string
+
 // getRealIP extracts the real client IP from the request, handling proxy headers
 // Checks headers in order: X-Forwarded-For, X-Real-IP, X-Forwarded, CF-Connecting-IP
 // Falls back to RemoteAddr if no proxy headers are present
@@ -89,11 +92,16 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 	case "stream":
 		// Serve an M3U playlist pointing to the inline-play URL so external
 		// players (VLC/mpv/etc.) can open the stream reliably across browsers.
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
+		var streamURL string
+		if serverPublicBaseURL != "" {
+			streamURL = serverPublicBaseURL + r.URL.Path + "?mode=play"
+		} else {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			streamURL = fmt.Sprintf("%s://%s%s?mode=play", scheme, r.Host, r.URL.Path)
 		}
-		streamURL := fmt.Sprintf("%s://%s%s?mode=play", scheme, r.Host, r.URL.Path)
 		filename := filepath.Base(validatedPath)
 		w.Header().Set("Content-Type", "audio/x-mpegurl; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename+".m3u"))
@@ -166,7 +174,8 @@ func updateLastActivity() {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string) {
+	serverPublicBaseURL = publicBaseURL
 	// Initialize allowed paths for security validation
 	if err := initAllowedPaths(filePaths); err != nil {
 		fmt.Printf("Error initializing allowed paths: %v\n", err)
@@ -822,13 +831,14 @@ func formatSize(size int64) string {
 
 // templateData holds data for the file listing template
 type templateData struct {
-	Files       []FileInfo
-	ShowHash    bool
-	ColorScheme *colorScheme
+	Files           []FileInfo
+	ShowHash        bool
+	ColorScheme     *colorScheme
 	UseDefaultTheme bool
-	TotalSize   int64
-	FileCount   int
-	Version     string
+	TotalSize       int64
+	FileCount       int
+	Version         string
+	PublicBaseURL   string // from --url; empty = use window.location.origin in the client
 }
 
 // globalAppVersion stores the application version (set by main.go)
@@ -1053,6 +1063,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             let currentFiles = [];
             let currentSort = { column: null, direction: 'asc' };
             let showHash = false;
+            const publicBase = {{if .PublicBaseURL}}{{printf "%q" .PublicBaseURL}}{{else}}""{{end}};
             let activeSearchQuery = '';
             let searchDebounceTimer = null;
             let pendingSearchAbort = null;
@@ -1332,7 +1343,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         const downloadUrl = '/' + encodedPath + '?mode=download';
                         const playUrl = '/' + encodedPath + '?mode=play';
                         const m3uUrl = '/' + encodedPath + '?mode=stream';
-                        const absoluteStreamUrl = window.location.origin + playUrl;
+                        const absoluteStreamUrl = (publicBase || window.location.origin) + playUrl;
                         const mediaFile = isMediaFile(file.displayName);
 
                         const actions = document.createElement('span');
@@ -1605,10 +1616,11 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
     `))
 	
 	data := templateData{
-		ShowHash:    showHash,
-		ColorScheme: colorScheme,
+		ShowHash:        showHash,
+		ColorScheme:     colorScheme,
 		UseDefaultTheme: colorScheme == nil,
-		Version:     version,
+		Version:         version,
+		PublicBaseURL:   serverPublicBaseURL,
 	}
 	if err := tmpl.Execute(cw, data); err != nil {
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)

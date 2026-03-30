@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -18,7 +19,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.85"
+	appVersion     = "1.1.86"
 	port           string
 	ip             string
 	showHidden     bool
@@ -29,6 +30,7 @@ var (
 	rateLimit      float64 = -1 // -1 means use default, 0 means disable, >0 means use this value
 	reload         bool
 	idle           string  // Idle timeout (empty = disabled, "15m" = default when flag is set)
+	publicURL      string  // Public base URL for links when behind a reverse proxy (--url)
 )
 
 func main() {
@@ -115,8 +117,14 @@ func main() {
 				}
 				idleTimeout = parsed
 			}
+
+			normalizedPublicURL, err := normalizePublicURL(publicURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid --url: %v\n", err)
+				os.Exit(1)
+			}
 			
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout)
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL)
 		},
 	}
 
@@ -133,6 +141,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&reload, "reload", false, "Enable auto-reload: monitor files for changes in real-time using file system notifications (new files, removed files, modified files)")
 	rootCmd.Flags().StringVar(&colours, "colours", "", "Color scheme: Background,Text,TableHeaderBg,TableHeaderText,TableBg,TableFilenameText,TableOtherText (comma-separated, 7 colors)")
 	rootCmd.Flags().StringVar(&idle, "idle", "", "Idle timeout: server shuts down after this period of inactivity. Default: 15m if flag is set without value. Supports units: M (minutes), H (hours), D (days), W (weeks), Mo (months). Examples: 15m, 1H, 4D, 1W, 1Mo")
+	rootCmd.Flags().StringVar(&publicURL, "url", "", "Public base URL for generated links (e.g. https://files.example.com:8443) when behind a reverse proxy; omit scheme to default to http")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -248,6 +257,25 @@ func parseIdleTimeout(timeout string) (time.Duration, error) {
 	}
 
 	return time.Duration(value * float64(multiplier)), nil
+}
+
+// normalizePublicURL validates --url and returns a base URL without a trailing slash (or empty).
+func normalizePublicURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("missing host")
+	}
+	return strings.TrimSuffix(u.String(), "/"), nil
 }
 
 // colorScheme holds the color configuration for the HTML output

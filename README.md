@@ -60,6 +60,11 @@ Serve multiple files and directories:
   ./shareplane --port 3000 file.txt
   ```
 
+- `--url`: Public base URL for generated links when behind a reverse proxy (e.g. `https://share.example.com` or `http://192.168.1.5:8443`). Used for M3U playlists and external-player stream URLs in the web UI. If omitted, the request host is used.
+  ```bash
+  ./shareplane --url https://files.example.com:8443 /path/to/share
+  ```
+
 - `--ip`: IP address to bind to (default: `0.0.0.0` - all interfaces)
   ```bash
   ./shareplane --ip 127.0.0.1 file.txt
