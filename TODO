@@ -38,3 +38,5 @@
 - [ ] Add `--cert`/`--key` flags to allow the usage of a real cert and its key for HTTPS (if they are valid we instantly support HTTPS) [#36]
 - [x] At the bottom of the output screen add a footer row with "shareplane Version (version here) - link to the github project" [#37]
 - [ ] Readonly upload flag where we set a folder `--upload upload/` and the users see an upload button and they can upload files/folders. We need to show progress to the users [#38]
+- [ ] Allow the user to enter nested dirs by default since we allow the first level anyway (URL-encoded paths, relative links, parent `..`) [#39]
+- [x] Problem downloading any file (404) — fixed with path decoding and subdirectory-aware links [#40]
