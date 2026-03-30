@@ -117,4 +117,3 @@ func rateLimitMiddleware(handler http.HandlerFunc, getRealIP func(*http.Request)
 		handler(w, r)
 	}
 }
-

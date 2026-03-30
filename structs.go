@@ -49,14 +49,14 @@ type rateLimitedWriter struct {
 
 // FileInfo is a struct to hold detailed information about files.
 type FileInfo struct {
-	Name        string    `json:"name"`         // Full absolute path (internal use only)
-	DisplayName string    `json:"displayName"`  // Relative path for display (safe to show)
-	PrettyName  string    `json:"prettyName,omitempty"` // Label with --prefix/--suffix; empty means use displayName in UI
-	Size        int64     `json:"size"`         // File size in bytes
-	ModTime     time.Time `json:"modTime"`      // Modification time
-	Hash        string    `json:"hash"`         // SHA1 hash (empty if not calculated)
-	IsDir       bool      `json:"isDir"`        // Whether this is a directory
-	DownloadCount int64   `json:"downloadCount"` // Times this file was served (GET body); 0 if never
+	Name          string    `json:"name"`                 // Full absolute path (internal use only)
+	DisplayName   string    `json:"displayName"`          // Relative path for display (safe to show)
+	PrettyName    string    `json:"prettyName,omitempty"` // Label with --prefix/--suffix; empty means use displayName in UI
+	Size          int64     `json:"size"`                 // File size in bytes
+	ModTime       time.Time `json:"modTime"`              // Modification time
+	Hash          string    `json:"hash"`                 // SHA1 hash (empty if not calculated)
+	IsDir         bool      `json:"isDir"`                // Whether this is a directory
+	DownloadCount int64     `json:"downloadCount"`        // Times this file was served (GET body); 0 if never
 }
 
 // apiResponse represents the JSON response from /api/files
@@ -85,10 +85,10 @@ type apiDownloadFile struct {
 
 // apiStatusResponse is the JSON body for GET /api/status
 type apiStatusResponse struct {
-	Version            string            `json:"version"`
-	TotalDownloadBytes int64             `json:"totalDownloadBytes"`
-	TotalListingBytes  int64             `json:"totalListingBytes"`
-	Files              []apiStatusFile   `json:"files"`
+	Version            string              `json:"version"`
+	TotalDownloadBytes int64               `json:"totalDownloadBytes"`
+	TotalListingBytes  int64               `json:"totalListingBytes"`
+	Files              []apiStatusFile     `json:"files"`
 	Clients            []apiDownloadClient `json:"clients"`
 }
 
@@ -120,10 +120,10 @@ var (
 	rateLimiterMutex  sync.Mutex
 	globalFileWatcher *fileWatcher
 	fileWatcherMutex  sync.Mutex
-	
+
 	// Idle timeout tracking
 	lastActivity   time.Time
 	lastActivityMu sync.RWMutex
-	httpServer    *http.Server
-	httpServerMu  sync.RWMutex
+	httpServer     *http.Server
+	httpServerMu   sync.RWMutex
 )

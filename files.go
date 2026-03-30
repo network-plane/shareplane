@@ -203,10 +203,10 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 		relPath := getRelativePath(validatedPath, allowedPaths)
 		cw = &countingWriter{
 			ResponseWriter: finalWriter,
-			path:             relPath,
-			clientIP:         clientIP,
-			isRangeRequest:   isRangeRequest,
-			fileSize:         fileSize,
+			path:           relPath,
+			clientIP:       clientIP,
+			isRangeRequest: isRangeRequest,
+			fileSize:       fileSize,
 		}
 		finalWriter = cw
 	}
@@ -216,7 +216,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 	// This enables resuming downloads, partial file fetches, and probing files without downloading
 	// Use validatedPath to ensure we only serve allowed files
 	http.ServeFile(finalWriter, r, validatedPath)
-	
+
 	// Only track stats and check completion for non-HEAD requests
 	if !isHEAD && cw != nil {
 		cw.finish()
@@ -247,17 +247,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		fmt.Printf("Error initializing allowed paths: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Set up idle timeout tracking
 	if idleTimeout > 0 {
 		// Initialize last activity to now
 		updateLastActivity()
-		
+
 		// Start idle timeout checker
 		go func() {
 			ticker := time.NewTicker(1 * time.Second)
 			defer ticker.Stop()
-			
+
 			for range ticker.C {
 				lastActivityMu.RLock()
 				last := lastActivity
@@ -265,7 +265,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 
 				if time.Since(last) >= idleTimeout {
 					fmt.Printf("\n[Idle Timeout] No activity for %v, shutting down server...\n", idleTimeout)
-					
+
 					// Cleanup rate limiter
 					rateLimiterMutex.Lock()
 					if globalRateLimiter != nil {
@@ -292,27 +292,27 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 						}
 						cancel()
 					}
-					
+
 					printStats()
 					os.Exit(0)
 				}
 			}
 		}()
-		
+
 		fmt.Printf("[Idle Timeout] Server will shut down after %v of inactivity\n", idleTimeout)
 	}
-	
+
 	// API endpoint for JSON data
 	http.HandleFunc("/api/files", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		// Get path parameter (optional, defaults to root)
 		requestedPath := r.URL.Query().Get("path")
-		
+
 		var filesInfo []FileInfo
 		var err error
 		displayBasePath := ""
 		useDisplayBasePath := false
-		
+
 		if requestedPath == "" {
 			// Root path - list all shared files/directories
 			filesInfo, err = listFiles(filePaths, showHidden, hash, maxHashSize)
@@ -323,14 +323,14 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				http.Error(w, "Path not found", http.StatusNotFound)
 				return
 			}
-			
+
 			var fileInfo os.FileInfo
 			fileInfo, err = os.Stat(validatedPath)
 			if err != nil {
 				http.Error(w, "Path not found", http.StatusNotFound)
 				return
 			}
-			
+
 			if fileInfo.IsDir() {
 				filesInfo, err = listFilesInDir(validatedPath, showHidden, hash, maxHashSize)
 				displayBasePath = validatedPath
@@ -347,17 +347,17 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				err = nil
 			}
 		}
-		
+
 		if err != nil {
 			http.Error(w, "Failed to list files", http.StatusInternalServerError)
 			return
 		}
-		
+
 		// Convert to display names and calculate totals
 		displayFiles := make([]FileInfo, len(filesInfo))
 		var totalSize int64
 		var fileCount int
-		
+
 		for i, f := range filesInfo {
 			displayFiles[i] = f
 			if displayFiles[i].DisplayName == "" {
@@ -373,7 +373,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 					displayFiles[i].DisplayName = getRelativePath(f.Name, allowedPaths)
 				}
 			}
-			
+
 			// Check if it's a directory
 			fileInfo, err := os.Stat(f.Name)
 			if err == nil {
@@ -391,7 +391,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 				displayFiles[i].DownloadCount = lookupDownloadCount(displayFiles[i].DisplayName)
 			}
 		}
-		
+
 		// Return JSON response
 		w.Header().Set("Content-Type", "application/json")
 		response := apiResponse{
@@ -400,7 +400,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			FileCount: fileCount,
 			ShowHash:  hash,
 		}
-		
+
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
@@ -547,7 +547,7 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			Path string `json:"path"`
 		}{SHA1: hash, Path: rel})
 	}, getRealIP))
-	
+
 	http.HandleFunc("/", rateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		updateLastActivity()
 		if r.URL.Path != "/" {
@@ -557,20 +557,20 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 			if err == nil {
 				requestedPath = decodedPath
 			}
-			
+
 			// SECURITY: Validate that the requested path is within allowed directories
 			validatedPath, allowed := isPathAllowed(requestedPath)
 			if !allowed {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
 			}
-			
+
 			fileInfo, err := os.Stat(validatedPath)
 			if err != nil {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
 			}
-			
+
 			if fileInfo.IsDir() {
 				// Handle HEAD requests for directories
 				if r.Method == "HEAD" {
@@ -648,12 +648,12 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		Addr:    listenAddress,
 		Handler: nil,
 	}
-	
+
 	// Store server reference for idle timeout shutdown
 	httpServerMu.Lock()
 	httpServer = server
 	httpServerMu.Unlock()
-	
+
 	// Start server with optional PROXY protocol parsing.
 	// This allows real client IPs behind FRP TCP proxies (proxyProtocolVersion=v2)
 	// while remaining compatible with direct/HTTP proxy traffic without PROXY headers.
@@ -698,35 +698,35 @@ func calculateSHA1(filePath string) (string, error) {
 // listFilesInDir generates a slice of FileInfo for files in a specific directory.
 func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int64) ([]FileInfo, error) {
 	var filesInfo []FileInfo
-	
+
 	fileInfo, err := os.Stat(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access directory: %w", err)
 	}
-	
+
 	if !fileInfo.IsDir() {
 		return nil, fmt.Errorf("path is not a directory")
 	}
-	
+
 	dirFiles, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read directory: %w", err)
 	}
-	
+
 	for _, f := range dirFiles {
 		// Skip hidden files unless showHidden flag is set
 		if !showHidden && isHidden(f.Name()) {
 			continue
 		}
-		
+
 		fileInfo, err := f.Info()
 		if err != nil {
 			return nil, fmt.Errorf("cannot get file info: %w", err)
 		}
-		
+
 		fullPath := filepath.Join(dirPath, f.Name())
 		fileSize := fileInfo.Size()
-		
+
 		// Calculate hash if enabled and file size is within limit
 		var hashValue string
 		if hash && !fileInfo.IsDir() {
@@ -737,7 +737,7 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 				}
 			}
 		}
-		
+
 		filesInfo = append(filesInfo, FileInfo{
 			Name:        fullPath,
 			DisplayName: "", // Will be set in API handler
@@ -746,7 +746,7 @@ func listFilesInDir(dirPath string, showHidden bool, hash bool, maxHashSize int6
 			Hash:        hashValue,
 		})
 	}
-	
+
 	return filesInfo, nil
 }
 
@@ -1762,7 +1762,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 </body>
 </html>
     `))
-	
+
 	data := templateData{
 		ShowHash:        showHash,
 		ColorScheme:     colorScheme,
@@ -1774,6 +1774,6 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
 		return
 	}
-	
+
 	totalBytesSentForListings += cw.bytesWritten
 }

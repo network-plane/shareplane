@@ -12,14 +12,14 @@ import (
 
 // fileWatcher monitors files and directories for changes using fsnotify
 type fileWatcher struct {
-	filePaths  []string
-	showHidden bool
-	watcher    *fsnotify.Watcher
+	filePaths   []string
+	showHidden  bool
+	watcher     *fsnotify.Watcher
 	watchedDirs map[string]bool
-	mu         sync.RWMutex
-	stopChan   chan struct{}
-	debounce   map[string]time.Time
-	debounceMu sync.Mutex
+	mu          sync.RWMutex
+	stopChan    chan struct{}
+	debounce    map[string]time.Time
+	debounceMu  sync.Mutex
 }
 
 // newFileWatcher creates a new file watcher
@@ -65,7 +65,7 @@ func (fw *fileWatcher) watchPath(path string) {
 	if !allowed {
 		return
 	}
-	
+
 	fileInfo, err := os.Stat(validatedPath)
 	if err != nil {
 		return
@@ -136,7 +136,7 @@ func (fw *fileWatcher) handleEvent(event fsnotify.Event) {
 	fw.debounceMu.Lock()
 	lastEvent, exists := fw.debounce[event.Name]
 	now := time.Now()
-	
+
 	// If event happened within 100ms of last event for this file, skip it
 	if exists && now.Sub(lastEvent) < 100*time.Millisecond {
 		fw.debounceMu.Unlock()
@@ -234,4 +234,3 @@ func (fw *fileWatcher) stop() {
 		fw.watcher.Close()
 	}
 }
-

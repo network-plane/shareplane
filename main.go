@@ -29,11 +29,11 @@ var (
 	colours        string
 	rateLimit      float64 = -1 // -1 means use default, 0 means disable, >0 means use this value
 	reload         bool
-	idle           string  // Idle timeout (empty = disabled, "15m" = default when flag is set)
-	publicURL      string  // Public base URL for links when behind a reverse proxy (--url)
+	idle           string // Idle timeout (empty = disabled, "15m" = default when flag is set)
+	publicURL      string // Public base URL for links when behind a reverse proxy (--url)
 	namePrefix     string
 	nameSuffix     string
-	statusURLFlag string // shareplane status --url
+	statusURLFlag  string // shareplane status --url
 )
 
 func main() {
@@ -98,7 +98,7 @@ func main() {
 				// Use specified value
 				limitValue = rateLimit
 			}
-			
+
 			if limitValue > 0 {
 				globalRateLimiter = newRateLimiter(limitValue)
 			} else {
@@ -108,7 +108,7 @@ func main() {
 
 			// Set version for files.go
 			setAppVersion(appVersion)
-			
+
 			// Parse idle timeout if specified
 			var idleTimeout time.Duration
 			if cmd.Flags().Changed("idle") {
@@ -126,7 +126,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: invalid --url: %v\n", err)
 				os.Exit(1)
 			}
-			
+
 			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL, namePrefix, nameSuffix)
 		},
 	}
@@ -297,13 +297,13 @@ func normalizePublicURL(raw string) (string, error) {
 
 // colorScheme holds the color configuration for the HTML output
 type colorScheme struct {
-	Background         string
-	Text               string
-	TableHeaderBg      string
-	TableHeaderText    string
-	TableBg            string
-	TableFilenameText  string
-	TableOtherText     string
+	Background        string
+	Text              string
+	TableHeaderBg     string
+	TableHeaderText   string
+	TableBg           string
+	TableFilenameText string
+	TableOtherText    string
 }
 
 // parseColors parses a comma-separated string of 7 colors
@@ -367,14 +367,14 @@ func setupSignalHandling() {
 			globalRateLimiter.stop()
 		}
 		rateLimiterMutex.Unlock()
-		
+
 		// Cleanup file watcher
 		fileWatcherMutex.Lock()
 		if globalFileWatcher != nil {
 			globalFileWatcher.stop()
 		}
 		fileWatcherMutex.Unlock()
-		
+
 		printStats()
 		os.Exit(0)
 	}()
