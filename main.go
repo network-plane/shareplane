@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	appVersion     = "1.1.81"
+	appVersion     = "1.1.82"
 	port           string
 	ip             string
 	showHidden     bool

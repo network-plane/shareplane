@@ -980,10 +980,8 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
 </head>
 <body>
     <h1>Files</h1>
-    <div style="margin-bottom: 14px; display: flex; gap: 8px; align-items: center;">
-        <input id="searchInput" type="text" placeholder="Search files..." style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--table-bg); color: var(--text); font-family: monospace;">
-        <button id="searchBtn" type="button" class="theme-toggle" style="margin-left: 0;">Search</button>
-        <button id="clearSearchBtn" type="button" class="theme-toggle" style="margin-left: 0;">Clear</button>
+    <div style="margin-bottom: 14px;">
+        <input id="searchInput" type="search" autocomplete="off" placeholder="Search in this folder…" style="width: 100%; max-width: 42rem; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--table-bg); color: var(--text); font-family: monospace;">
     </div>
     <div id="loading" class="loading">Loading...</div>
     <div id="error" class="error" style="display: none;"></div>
@@ -1010,12 +1008,13 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             const errorDiv = document.getElementById('error');
             const hashHeader = document.getElementById('hashHeader');
             const searchInput = document.getElementById('searchInput');
-            const searchBtn = document.getElementById('searchBtn');
-            const clearSearchBtn = document.getElementById('clearSearchBtn');
             let currentFiles = [];
             let currentSort = { column: null, direction: 'asc' };
             let showHash = false;
             let activeSearchQuery = '';
+            let searchDebounceTimer = null;
+            let pendingSearchAbort = null;
+            const searchDebounceMs = 250;
             const hasCustomTheme = {{if .UseDefaultTheme}}false{{else}}true{{end}};
             
             // Get current path from URL
@@ -1061,6 +1060,13 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 } else {
                     errorDiv.style.display = 'block';
                     errorDiv.textContent = 'Stream URL: ' + url;
+                }
+            }
+
+            function abortPendingSearch() {
+                if (pendingSearchAbort) {
+                    pendingSearchAbort.abort();
+                    pendingSearchAbort = null;
                 }
             }
 
@@ -1134,6 +1140,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             // Fetch files from API
             async function fetchFiles(path) {
                 try {
+                    abortPendingSearch();
                     loading.style.display = 'block';
                     errorDiv.style.display = 'none';
                     table.style.display = 'none';
@@ -1163,6 +1170,10 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             }
 
             async function searchFiles(path, query) {
+                abortPendingSearch();
+                pendingSearchAbort = new AbortController();
+                const mySearchCtrl = pendingSearchAbort;
+                const signal = mySearchCtrl.signal;
                 try {
                     loading.style.display = 'block';
                     errorDiv.style.display = 'none';
@@ -1174,7 +1185,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         params.set('path', path);
                     }
 
-                    const response = await fetch('/api/search?' + params.toString());
+                    const response = await fetch('/api/search?' + params.toString(), { signal });
                     if (!response.ok) {
                         throw new Error('Failed to search files');
                     }
@@ -1188,9 +1199,16 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     loading.style.display = 'none';
                     table.style.display = '';
                 } catch (err) {
+                    if (err.name === 'AbortError') {
+                        return;
+                    }
                     loading.style.display = 'none';
                     errorDiv.style.display = 'block';
                     errorDiv.textContent = 'Error searching files: ' + err.message;
+                } finally {
+                    if (pendingSearchAbort === mySearchCtrl) {
+                        pendingSearchAbort = null;
+                    }
                 }
             }
             
@@ -1210,6 +1228,12 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     parentLink.textContent = '..';
                     parentLink.addEventListener('click', function(e) {
                         e.preventDefault();
+                        activeSearchQuery = '';
+                        if (searchInput) searchInput.value = '';
+                        if (searchDebounceTimer) {
+                            clearTimeout(searchDebounceTimer);
+                            searchDebounceTimer = null;
+                        }
                         window.history.pushState({path: parentPath}, '', parentHref);
                         fetchFiles(parentPath);
                     });
@@ -1252,6 +1276,12 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         // Prevent default navigation, fetch directory contents instead
                         link.addEventListener('click', function(e) {
                             e.preventDefault();
+                            activeSearchQuery = '';
+                            if (searchInput) searchInput.value = '';
+                            if (searchDebounceTimer) {
+                                clearTimeout(searchDebounceTimer);
+                                searchDebounceTimer = null;
+                            }
                             window.history.pushState({path: targetPath}, '', '/' + encodedPath);
                             fetchFiles(targetPath);
                         });
@@ -1413,18 +1443,46 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             });
 
             function runSearch() {
-                const q = searchInput.value.trim();
+                const q = searchInput ? searchInput.value.trim() : '';
                 activeSearchQuery = q;
                 const path = getCurrentPath();
                 if (!q) {
+                    abortPendingSearch();
                     fetchFiles(path);
                     return;
                 }
                 searchFiles(path, q);
             }
 
+            function onSearchInput() {
+                if (!searchInput) return;
+                const raw = searchInput.value;
+                if (raw.trim() === '') {
+                    if (searchDebounceTimer) {
+                        clearTimeout(searchDebounceTimer);
+                        searchDebounceTimer = null;
+                    }
+                    activeSearchQuery = '';
+                    abortPendingSearch();
+                    fetchFiles(getCurrentPath());
+                    return;
+                }
+                if (searchDebounceTimer) {
+                    clearTimeout(searchDebounceTimer);
+                }
+                searchDebounceTimer = setTimeout(function() {
+                    searchDebounceTimer = null;
+                    runSearch();
+                }, searchDebounceMs);
+            }
+
             function clearSearch() {
                 activeSearchQuery = '';
+                if (searchDebounceTimer) {
+                    clearTimeout(searchDebounceTimer);
+                    searchDebounceTimer = null;
+                }
+                abortPendingSearch();
                 searchInput.value = '';
                 fetchFiles(getCurrentPath());
             }
@@ -1457,15 +1515,14 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     themeToggle.addEventListener('click', toggleTheme);
                 }
 
-                if (searchBtn) {
-                    searchBtn.addEventListener('click', runSearch);
-                }
-                if (clearSearchBtn) {
-                    clearSearchBtn.addEventListener('click', clearSearch);
-                }
                 if (searchInput) {
+                    searchInput.addEventListener('input', onSearchInput);
                     searchInput.addEventListener('keydown', function(e) {
                         if (e.key === 'Enter') {
+                            if (searchDebounceTimer) {
+                                clearTimeout(searchDebounceTimer);
+                                searchDebounceTimer = null;
+                            }
                             runSearch();
                         } else if (e.key === 'Escape') {
                             clearSearch();
