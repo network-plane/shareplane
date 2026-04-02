@@ -9,7 +9,7 @@ A lightweight HTTP server written in Go for serving files and directories over H
 - **HTTP Range Support**: Supports HTTP Range requests (206 Partial Content) for resuming downloads and partial file fetches
 - **Download Statistics**: Track downloads with byte counts, per-client full/partial fetches, and optional activity/event logs
 - **Customizable Binding**: Configure IP address and port
-- **HTTPS**: Optional ephemeral self-signed certificate (`--https`) or PEM `--cert` / `--key` (TLS and PROXY listener are not combined; see below)
+- **HTTPS**: Optional ephemeral self-signed certificate (`--https`) or PEM `--cert` / `--key`; `--frp` enables HAProxy PROXY v1/v2 before the TLS handshake when using TCP proxies such as frp
 - **Network Interface Detection**: When binding to `0.0.0.0`, automatically shows all available IP addresses
 - **File Listing**: Automatic HTML file listing at the root path (search, sort, optional QR codes, multi-file archive links when enabled)
 - **Glob Pattern Support**: Use glob patterns to select multiple files
@@ -159,8 +159,7 @@ Serve multiple files and directories:
 
 - `--https`: Listen with an **ephemeral** self-signed TLS certificate (not written to disk; browsers will warn).
 - `--cert` / `--key`: Paths to PEM certificate and private key. If both are set, they take precedence over `--https`.
-
-When TLS is enabled, the TCP listener uses TLS directly; the HAProxy PROXY protocol wrapper is **not** applied on that listener.
+- `--frp`: With TLS only, wrap the listener so **HAProxy PROXY protocol v1 or v2** is read on each TCP connection **before** the TLS handshake. Use this when a TCP proxy (e.g. **frp**) sends a PROXY header ahead of TLS. Omit `--frp` for normal direct HTTPS. Plain HTTP continues to accept optional PROXY headers without this flag.
 
 #### UI and integrations
 
@@ -481,6 +480,8 @@ When running behind a reverse proxy (such as frps, nginx, or Cloudflare), the se
 4. `CF-Connecting-IP` - Cloudflare-specific header
 
 If no proxy headers are present, the server falls back to the connection's `RemoteAddr`. The real client IP is displayed in the download logs, making it easy to track which clients are downloading files even when behind a proxy.
+
+For **HTTPS** behind a TCP proxy that sends **PROXY** before TLS (e.g. frp), start shareplane with **`--frp`** in addition to `--https` or `--cert`/`--key`. For **HTTP** (no TLS), PROXY is always accepted on the listener when present.
 
 ## Statistics
 

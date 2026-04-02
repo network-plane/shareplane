@@ -138,6 +138,19 @@ func buildAPIStatusResponse() apiStatusResponse {
 	}
 }
 
+// logFileTransferStart prints when the server is about to send a file body (GET), so operators see activity before a long transfer finishes.
+func logFileTransferStart(clientIP, relPath, mode string, isRange bool, fileSize int64) {
+	m := mode
+	if m == "" {
+		m = "download"
+	}
+	rng := "range_request=false"
+	if isRange {
+		rng = "range_request=true"
+	}
+	outPrintf("[download-start] client_ip=%s path=%s mode=%s %s size=%d\n", clientIP, relPath, m, rng, fileSize)
+}
+
 func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, validatedPath string, mode string) {
 	clientIP := getRealIP(r)
 	isHEAD := r.Method == "HEAD"
@@ -178,6 +191,8 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		relM3U := normalizeStatsPath(getRelativePath(validatedPath, allowedPaths))
+		outPrintf("[download-start] client_ip=%s path=%s mode=stream kind=m3u_playlist\n", clientIP, relM3U)
 		_, _ = fmt.Fprintf(w, "#EXTM3U\n#EXTINF:-1,%s\n%s\n", filename, streamURL)
 		return
 	default:
@@ -246,6 +261,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 			fileSize:       0,
 			startedAt:      time.Now(),
 		}
+		logFileTransferStart(clientIP, relPath, mode, false, fileSize)
 		if err := serveEncryptedZstd(cw, r, validatedPath, serverCfg.EncryptPassword); err != nil {
 			return
 		}
@@ -270,6 +286,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 			startedAt:      time.Now(),
 		}
 		finalWriter = cw
+		logFileTransferStart(clientIP, relPath, mode, isRangeRequest, fileSize)
 	}
 
 	// http.ServeFile automatically handles HTTP Range requests (206 Partial Content)
@@ -318,7 +335,7 @@ func effectiveListRoots(filePaths []string) []string {
 }
 
 // serveFiles sets up the HTTP server and handlers.
-func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string, namePrefix string, nameSuffix string) {
+func serveFiles(filePaths []string, ip string, port string, showHidden bool, hash bool, maxHashSize int64, bandwidthLimit int64, colorScheme *colorScheme, enableReload bool, idleTimeout time.Duration, publicBaseURL string, namePrefix string, nameSuffix string, frpProxy bool) {
 	serverPublicBaseURL = publicBaseURL
 	serverNamePrefix = namePrefix
 	serverNameSuffix = nameSuffix
@@ -864,6 +881,8 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		} else {
 			outPrintln("Using ephemeral TLS certificate (self-signed, not saved). Expect browser warnings.")
 		}
+	} else if frpProxy {
+		outPrintln("Note: --frp only applies when TLS is enabled (--https or --cert and --key).")
 	}
 
 	// Create HTTP server for graceful shutdown support
@@ -914,21 +933,27 @@ func serveFiles(filePaths []string, ip string, port string, showHidden bool, has
 		}
 	}
 
-	// Start server: optional TLS, else PROXY protocol parsing on plain TCP.
+	// Plain HTTP: always accept optional HAProxy PROXY v1/v2 before HTTP.
+	// HTTPS: wrap with PROXY listener only when --frp (upstream sends PROXY before TLS).
 	baseListener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var outer net.Listener = baseListener
+	proxyLn := &proxyproto.Listener{
+		Listener:          baseListener,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	var outer net.Listener
 	if tlsCfg != nil {
-		outer = tls.NewListener(baseListener, tlsCfg)
-		outPrintln("Note: PROXY protocol is not enabled together with TLS on this listener.")
-	} else {
-		outer = &proxyproto.Listener{
-			Listener:          baseListener,
-			ReadHeaderTimeout: 5 * time.Second,
+		if frpProxy {
+			outer = tls.NewListener(proxyLn, tlsCfg)
+			outPrintln("TLS (--frp): PROXY protocol v1/v2, when sent by the upstream, is handled before the TLS handshake.")
+		} else {
+			outer = tls.NewListener(baseListener, tlsCfg)
 		}
+	} else {
+		outer = proxyLn
 	}
 
 	if serverCfg.EnableTUI {

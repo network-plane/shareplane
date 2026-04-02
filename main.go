@@ -53,6 +53,7 @@ var (
 	tlsKeyFile     string
 	enableTUI      bool
 	uploadDir      string
+	frpProxy       bool // PROXY protocol before TLS (e.g. frp TCP + HTTPS)
 )
 
 func main() {
@@ -210,7 +211,7 @@ func main() {
 			serverCfg.BasicUser = basicUser
 			serverCfg.BasicPass = basicPassword
 
-			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL, namePrefix, nameSuffix)
+			serveFiles(args, ip, port, showHidden, hash, maxHashSize, limitBytesPerSec, colorScheme, reload, idleTimeout, normalizedPublicURL, namePrefix, nameSuffix, frpProxy)
 		},
 	}
 
@@ -246,6 +247,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&useHTTPS, "https", false, "Serve HTTPS with an ephemeral self-signed certificate (not saved; browser warnings expected)")
 	rootCmd.Flags().StringVar(&tlsCertFile, "cert", "", "Path to TLS certificate (PEM); use with --key (takes precedence over --https)")
 	rootCmd.Flags().StringVar(&tlsKeyFile, "key", "", "Path to TLS private key (PEM); use with --cert")
+	rootCmd.Flags().BoolVar(&frpProxy, "frp", false, "With TLS, read HAProxy PROXY protocol v1/v2 on each TCP connection before the TLS handshake (e.g. frp); no effect without TLS")
 	rootCmd.Flags().BoolVar(&enableTUI, "tui", false, "Show live /api/status in the terminal (server runs in background; use --log to capture server output to a file)")
 	rootCmd.Flags().StringVar(&uploadDir, "upload", "", "Directory to receive uploads (POST /api/upload); created if missing; shown in listings when not already shared")
 
