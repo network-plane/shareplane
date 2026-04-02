@@ -244,6 +244,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 			clientIP:       clientIP,
 			isRangeRequest: false,
 			fileSize:       0,
+			startedAt:      time.Now(),
 		}
 		if err := serveEncryptedZstd(cw, r, validatedPath, serverCfg.EncryptPassword); err != nil {
 			return
@@ -266,6 +267,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, bandwidthLimit int64, val
 			clientIP:       clientIP,
 			isRangeRequest: isRangeRequest,
 			fileSize:       fileSize,
+			startedAt:      time.Now(),
 		}
 		finalWriter = cw
 	}

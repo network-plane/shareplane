@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -32,10 +33,76 @@ func lookupDownloadCount(displayPath string) int64 {
 
 // Called after serving a file to update global stats and print download progress
 func (w *countingWriter) finish() {
-	recordServedDownload(w.path, w.clientIP, w.bytesWritten, w.fileSize, w.isRangeRequest)
+	var elapsed time.Duration
+	if !w.startedAt.IsZero() {
+		elapsed = time.Since(w.startedAt)
+	}
+	recordServedDownload(w.path, w.clientIP, w.bytesWritten, w.fileSize, w.isRangeRequest, elapsed)
 }
 
-func recordServedDownload(relPath, clientIP string, bytesWritten, fileSize int64, isRangeRequest bool) {
+func formatServedDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	d = d.Round(time.Second)
+	sec := int64(d / time.Second)
+	if sec < 60 {
+		return fmt.Sprintf("%ds", sec)
+	}
+	m := sec / 60
+	s := sec % 60
+	if s == 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	return fmt.Sprintf("%dm %ds", m, s)
+}
+
+// formatServedDataSize uses decimal (SI) units: prefer GB only when >= 1 GB so e.g. 900 MB stays MB; whole GB when rounded.
+func formatServedDataSize(bytes int64) string {
+	if bytes < 0 {
+		bytes = 0
+	}
+	const kb, mb, gb = 1000.0, 1e6, 1e9
+	f := float64(bytes)
+	if f >= gb {
+		g := f / gb
+		ig := int64(math.Round(g))
+		if math.Abs(g-float64(ig)) < 0.0005 {
+			return fmt.Sprintf("%dGB", ig)
+		}
+		return fmt.Sprintf("%.2fGB", g)
+	}
+	if f >= mb {
+		return fmt.Sprintf("%.0fMB", f/mb)
+	}
+	if f >= kb {
+		return fmt.Sprintf("%.0fKB", f/kb)
+	}
+	return fmt.Sprintf("%dB", bytes)
+}
+
+func formatServedMbps(bytesWritten int64, elapsed time.Duration) string {
+	if elapsed < time.Millisecond {
+		return "?mbit/s"
+	}
+	sec := elapsed.Seconds()
+	if sec <= 0 {
+		return "?mbit/s"
+	}
+	mbps := (float64(bytesWritten) * 8.0) / sec / 1e6
+	if mbps >= 100 {
+		return fmt.Sprintf("%.0fmbit/s", mbps)
+	}
+	if mbps >= 10 {
+		return fmt.Sprintf("%.1fmbit/s", mbps)
+	}
+	return fmt.Sprintf("%.2fmbit/s", mbps)
+}
+
+func recordServedDownload(relPath, clientIP string, bytesWritten, fileSize int64, isRangeRequest bool, elapsed time.Duration) {
 	statsMutex.Lock()
 	defer statsMutex.Unlock()
 
@@ -66,7 +133,10 @@ func recordServedDownload(relPath, clientIP string, bytesWritten, fileSize int64
 	if partial {
 		kind = "partial"
 	}
-	outPrintf("Served file %s to %s (%s), sent %d bytes\n", key, clientIP, kind, bytesWritten)
+	sizeStr := formatServedDataSize(bytesWritten)
+	timeStr := formatServedDuration(elapsed)
+	rateStr := formatServedMbps(bytesWritten, elapsed)
+	outPrintf("Served file %s to %s (%s), sent %d bytes in %s (%s@%s)\n", key, clientIP, kind, bytesWritten, timeStr, sizeStr, rateStr)
 	if serverCfg.ByteLimit > 0 {
 		atomic.AddInt64(&globalBytesTransferred, bytesWritten)
 	}

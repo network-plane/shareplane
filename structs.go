@@ -36,6 +36,7 @@ type countingWriter struct {
 	clientIP       string // The real client IP address
 	isRangeRequest bool   // True if client sent Range header
 	fileSize       int64  // Total file size (for full vs partial)
+	startedAt      time.Time
 }
 
 // rateLimitedWriter wraps a ResponseWriter and limits the write speed
