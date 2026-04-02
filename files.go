@@ -1847,13 +1847,14 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     parentSizeCell.textContent = '-';
                     parentRow.appendChild(parentSizeCell);
 
-                    if (showHash) {
-                        const parentHashCell = document.createElement('td');
-                        parentHashCell.className = 'hash';
-                        parentHashCell.setAttribute('data-sort-value', '');
-                        parentHashCell.textContent = '-';
-                        parentRow.appendChild(parentHashCell);
+                    const parentHashCell = document.createElement('td');
+                    parentHashCell.className = 'hash';
+                    if (!showHash) {
+                        parentHashCell.style.display = 'none';
                     }
+                    parentHashCell.setAttribute('data-sort-value', '');
+                    parentHashCell.textContent = '-';
+                    parentRow.appendChild(parentHashCell);
 
                     const parentModCell = document.createElement('td');
                     parentModCell.setAttribute('data-sort-value', -1);
@@ -1988,19 +1989,20 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     sizeCell.textContent = formatSize(file.size);
                     row.appendChild(sizeCell);
                     
-                    // Hash column (if enabled)
-                    if (showHash) {
-                        const hashCell = document.createElement('td');
-                        hashCell.className = 'hash';
-                        hashCell.setAttribute('data-sort-value', file.hash || '0');
-                        hashCell.textContent = file.hash || '-';
-                        row.appendChild(hashCell);
+                    // Hash column: always present so <th> cellIndex matches body rows (hash <th> stays in DOM when hidden).
+                    const hashCell = document.createElement('td');
+                    hashCell.className = 'hash';
+                    if (!showHash) {
+                        hashCell.style.display = 'none';
                     }
-                    
+                    hashCell.setAttribute('data-sort-value', file.hash || '0');
+                    hashCell.textContent = showHash ? (file.hash || '-') : '';
+                    row.appendChild(hashCell);
+
                     // Modified column
                     const modCell = document.createElement('td');
                     const modDate = new Date(file.modTime);
-                    modCell.setAttribute('data-sort-value', Math.floor(modDate.getTime() / 1000));
+                    modCell.setAttribute('data-sort-value', String(modDate.getTime()));
                     let modText = formatDate(file.modTime);
                     if (!file.isDir && typeof file.downloadCount === 'number') {
                         modText += ' · ' + file.downloadCount + '×';
@@ -2014,7 +2016,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 // Update footer
                 const footerRow = document.createElement('tr');
                 const fileText = data.fileCount !== 1 ? 's' : '';
-                const hashFoot = showHash ? '<td></td>' : '';
+                const hashFoot = showHash ? '<td></td>' : '<td class="hash" style="display:none"></td>';
                 let cbFoot = '';
                 if (singleStream) {
                     cbFoot = '<td></td>';
