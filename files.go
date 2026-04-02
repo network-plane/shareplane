@@ -1460,6 +1460,45 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             text-decoration: none;
             background: var(--row-hover);
         }
+        .search-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 10px 14px;
+            flex-wrap: wrap;
+            max-width: 42rem;
+            margin-bottom: 14px;
+        }
+        .search-bar-row .search-input-wrap {
+            flex: 1 1 12rem;
+            min-width: 0;
+        }
+        .search-bar-row input[type="search"]#searchInput {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--table-bg);
+            color: var(--text);
+            font-family: monospace;
+        }
+        label.action-icons-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+            color: var(--text);
+            font-size: 0.9em;
+            cursor: pointer;
+            font-family: monospace;
+        }
+        label.action-icons-toggle input {
+            cursor: pointer;
+        }
+        #fileTable.hide-action-icons .file-actions {
+            display: none !important;
+        }
         {{if .ShowQR}}
         #qrModalOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center; }
         #qrModalOverlay.qr-visible { display: flex; }
@@ -1480,8 +1519,14 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
     </div>
     {{end}}
     <h1>Files</h1>
-    <div style="margin-bottom: 14px;">
-        <input id="searchInput" type="search" autocomplete="off" placeholder="Search in this folder…" style="width: 100%; max-width: 42rem; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--table-bg); color: var(--text); font-family: monospace;">
+    <div class="search-bar-row">
+        <div class="search-input-wrap">
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Search in this folder…">
+        </div>
+        <label class="action-icons-toggle" title="Show download, play, and other shortcuts next to file names">
+            <input type="checkbox" id="showActionIcons">
+            Action icons
+        </label>
     </div>
     {{if .UploadEnabled}}
     <div style="margin-bottom: 14px; max-width: 42rem;">
@@ -1524,6 +1569,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             const errorDiv = document.getElementById('error');
             const hashHeader = document.getElementById('hashHeader');
             const searchInput = document.getElementById('searchInput');
+            const showActionIconsCb = document.getElementById('showActionIcons');
             let currentFiles = [];
             let currentSort = { column: null, direction: 'asc' };
             let showHash = false;
@@ -1536,7 +1582,32 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
             let pendingSearchAbort = null;
             const searchDebounceMs = 250;
             const hasCustomTheme = {{if .UseDefaultTheme}}false{{else}}true{{end}};
-            
+            const actionIconsStorageKey = 'shareplane-show-action-icons';
+
+            function applyActionIconsVisibility() {
+                if (!table) return;
+                const hide = showActionIconsCb && !showActionIconsCb.checked;
+                table.classList.toggle('hide-action-icons', hide);
+            }
+
+            (function initActionIconsCheckbox() {
+                if (!showActionIconsCb) {
+                    applyActionIconsVisibility();
+                    return;
+                }
+                const v = localStorage.getItem(actionIconsStorageKey);
+                if (v === '0') {
+                    showActionIconsCb.checked = false;
+                } else if (v === '1') {
+                    showActionIconsCb.checked = true;
+                }
+                applyActionIconsVisibility();
+                showActionIconsCb.addEventListener('change', function() {
+                    localStorage.setItem(actionIconsStorageKey, showActionIconsCb.checked ? '1' : '0');
+                    applyActionIconsVisibility();
+                });
+            })();
+
             // Get current path from URL
             function getCurrentPath() {
                 const path = window.location.pathname;
@@ -1717,7 +1788,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 }
                 return (size / div).toFixed(1) + ' ' + 'KMGTPE'[exp] + 'B';
             }
-            
+
             // Format date from ISO string
             function formatDate(dateStr) {
                 const date = new Date(dateStr);
@@ -1732,7 +1803,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 const seconds = String(date.getSeconds()).padStart(2, '0');
                 return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
             }
-            
+
             // Fetch files from API
             async function fetchFiles(path) {
                 try {
@@ -1740,21 +1811,21 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     loading.style.display = 'block';
                     errorDiv.style.display = 'none';
                     table.style.display = 'none';
-                    
+
                     const url = path ? '/api/files?path=' + encodeURIComponent(path) : '/api/files';
                     const response = await fetch(url);
-                    
+
                     if (!response.ok) {
                         throw new Error('Failed to fetch files');
                     }
-                    
+
                     const data = await response.json();
                     currentFiles = data.files || [];
                     showHash = data.showHash || false;
-                    
+
                     // Show/hide hash column
                     hashHeader.style.display = showHash ? '' : 'none';
-                    
+
                     renderTable(data);
                     loading.style.display = 'none';
                     table.style.display = '';
@@ -1807,7 +1878,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     }
                 }
             }
-            
+
             // Render table from API data
             function renderTable(data) {
                 tableBody.innerHTML = '';
@@ -1862,7 +1933,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     parentRow.appendChild(parentModCell);
                     tableBody.appendChild(parentRow);
                 }
-                
+
                 data.files.forEach(file => {
                     const row = document.createElement('tr');
                     const targetPath = joinPath(currentPath, file.displayName);
@@ -1981,14 +2052,14 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     nameCell.setAttribute('data-sort-value', file.displayName);
                     nameCell.appendChild(link);
                     row.appendChild(nameCell);
-                    
+
                     // Size column
                     const sizeCell = document.createElement('td');
                     sizeCell.className = 'size-cell';
                     sizeCell.setAttribute('data-sort-value', file.size);
                     sizeCell.textContent = formatSize(file.size);
                     row.appendChild(sizeCell);
-                    
+
                     // Hash column: always present so <th> cellIndex matches body rows (hash <th> stays in DOM when hidden).
                     const hashCell = document.createElement('td');
                     hashCell.className = 'hash';
@@ -2009,10 +2080,10 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     }
                     modCell.textContent = modText;
                     row.appendChild(modCell);
-                    
+
                     tableBody.appendChild(row);
                 });
-                
+
                 // Update footer
                 const footerRow = document.createElement('tr');
                 const fileText = data.fileCount !== 1 ? 's' : '';
@@ -2043,42 +2114,42 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     syncSelectAllArchive();
                 }
             }
-            
+
             // Sort table
             function sortTable(columnIndex, sortType) {
                 const rows = Array.from(tableBody.querySelectorAll('tr'));
                 const isAsc = currentSort.column === columnIndex && currentSort.direction === 'asc';
                 const newDirection = isAsc ? 'desc' : 'asc';
-                
+
                 rows.sort((a, b) => {
                     const aCell = a.cells[columnIndex];
                     const bCell = b.cells[columnIndex];
-                    
+
                     if (!aCell || !bCell) return 0;
-                    
+
                     const aValue = aCell.getAttribute('data-sort-value') || '';
                     const bValue = bCell.getAttribute('data-sort-value') || '';
-                    
+
                     let comparison = 0;
-                    
+
                     if (sortType === 'number') {
                         const aNum = parseFloat(aValue) || 0;
                         const bNum = parseFloat(bValue) || 0;
                         comparison = aNum - bNum;
                     } else {
-                        comparison = aValue.localeCompare(bValue, undefined, { 
-                            numeric: true, 
+                        comparison = aValue.localeCompare(bValue, undefined, {
+                            numeric: true,
                             sensitivity: 'base',
                             caseFirst: 'false'
                         });
                     }
-                    
+
                     return newDirection === 'asc' ? comparison : -comparison;
                 });
-                
+
                 rows.forEach(row => tableBody.removeChild(row));
                 rows.forEach(row => tableBody.appendChild(row));
-                
+
                 const headers = document.querySelectorAll('th.sortable');
                 headers.forEach((header) => {
                     header.classList.remove('sort-asc', 'sort-desc');
@@ -2086,10 +2157,10 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                         header.classList.add('sort-' + newDirection);
                     }
                 });
-                
+
                 currentSort = { column: columnIndex, direction: newDirection };
             }
-            
+
             // Add click handlers to headers
             document.querySelectorAll('th.sortable').forEach((header) => {
                 header.addEventListener('click', () => {
@@ -2097,7 +2168,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                     sortTable(header.cellIndex, sortType);
                 });
             });
-            
+
             // Handle browser back/forward buttons
             window.addEventListener('popstate', function(e) {
                 const path = e.state && e.state.path ? e.state.path : getCurrentPath();
@@ -2152,7 +2223,7 @@ func renderClientApp(w http.ResponseWriter, showHash bool, colorScheme *colorSch
                 searchInput.value = '';
                 fetchFiles(getCurrentPath());
             }
-            
+
             // Initial load
             function applyInitialTheme() {
                 if (hasCustomTheme) {
