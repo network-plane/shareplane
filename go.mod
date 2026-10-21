@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v0.25.0
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.7
 	github.com/pires/go-proxyproto v0.11.0
 	github.com/spf13/cobra v1.8.0
 	golang.org/x/crypto v0.52.0
